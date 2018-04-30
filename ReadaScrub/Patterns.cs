@@ -16,7 +16,7 @@ namespace ReadaScrub
         public static Regex ReplaceFonts = new Regex("<(\\/?)font[^>]*>", _regexOptions | RegexOptions.Multiline);
         public static Regex Normalize = new Regex("\\s{2,}", _regexOptions | RegexOptions.Multiline);
         public static Regex Videos = new Regex("\\/\\/(www\\.)?(dailymotion|youtube|youtube-nocookie|player\\.vimeo)\\.com", _regexOptions);
-        public static Regex NextLink = new Regex("(next|weiter|continue|>([^\\|]|$)|»([^\\|]|$))", _regexOptions;
+        public static Regex NextLink = new Regex("(next|weiter|continue|>([^\\|]|$)|»([^\\|]|$))", _regexOptions);
         public static Regex PrevLink = new Regex("(prev|earl|old|new|<|«)", _regexOptions);
         public static Regex Whitespace = new Regex("^\\s*$", _regexOptions);
         public static Regex HasContent = new Regex("^\\S$*", _regexOptions);
@@ -34,7 +34,8 @@ namespace ReadaScrub
         // Match Facebook's Open Graph title & description properties. 
         public static Regex propertyPattern = new Regex(@"^\s*og\s*:\s*(description|title)\s*$", _regexOptions);
 
-
+        public static Regex prepArticle1 = new Regex(@"share", _regexOptions);
+        public static Regex GrabArticle1 = new Regex(@"\.( |$)", _regexOptions);
     }
 
 }
