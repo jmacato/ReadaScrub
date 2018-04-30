@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
 using System.Text.RegularExpressions;
@@ -11,46 +10,24 @@ namespace ReadaScrub
 
     public static class HtmlNodeExtensions
     {
-        public static IEnumerable<HtmlNode> GetElementsByName(this HtmlNode parent, string name)
+        public static IEnumerable<ReadabilityNode> GetElementsByName(this ReadabilityNode parent, string name)
         {
-            return parent.Descendants().Where(node => node.Name == name).Cast<HtmlNode>();
+            return parent.Descendants().Where(node => node.Name == name).Cast<ReadabilityNode>();
         }
 
-        public static IEnumerable<HtmlNode> GetElementsByTagName(this HtmlNode parent, string name)
+        public static IEnumerable<ReadabilityNode> GetElementsByTagName(this ReadabilityNode parent, string name)
         {
-            return parent.Descendants(name).Cast<HtmlNode>();
+            return parent.Descendants(name).Cast<ReadabilityNode>();
+        }
+        public static IEnumerable<ReadabilityNode> GetElementsByName(this HtmlNode parent, string name)
+        {
+            return parent.Descendants().Where(node => node.Name == name).Cast<ReadabilityNode>();
         }
 
-        public static T GetRDProperty<T>(this HtmlNode node, string propName, string defaultVal = "null")
+        public static IEnumerable<ReadabilityNode> GetElementsByTagName(this HtmlNode parent, string name)
         {
-            return Convert<T>(node.GetAttributeValue($"READABILITY_{propName}", defaultVal));
+            return parent.Descendants(name).Cast<ReadabilityNode>();
         }
-
-        public static void SetRDProperty<T>(this HtmlNode node, string propName, T value)
-        {
-            node.SetAttributeValue($"READABILITY_{propName}", value.ToString());
-        }
-
-
-        public static T Convert<T>(string value)
-        {
-            try
-            {
-                var converter = TypeDescriptor.GetConverter(typeof(T));
-                if (converter != null)
-                {
-                    // Cast ConvertFromString(string text) : object to (T)
-                    return (T)converter.ConvertFromString(value);
-                }
-                return default(T);
-            }
-            catch (NotSupportedException)
-            {
-                return default(T);
-            }
-        }
-
-
     }
 
     [Flags]
@@ -109,7 +86,7 @@ namespace ReadaScrub
         /// <summary>
         /// Run any post-process modifications to article content as necessary.
         /// </summary>
-        void _postProcessContent(HtmlNode articleContent)
+        void _postProcessContent(ReadabilityNode articleContent)
         {
             // Readability cannot open relative uris so we convert them to absolute uris.
             _fixRelativeUris(articleContent);
@@ -123,13 +100,17 @@ namespace ReadaScrub
         /// if function returned `true`.
         /// If function is not passed, removes all the nodes in node list.
         /// </summary> 
-        void _removeNodes(IEnumerable<HtmlNode> nodeList, Func<HtmlNode, bool> filterFn)
+        void _removeNodes(IEnumerable<ReadabilityNode> nodeList, Func<ReadabilityNode, bool> filterFn)
         {
             foreach (var node in nodeList)
             {
-                if (filterFn(node))
+                var parentNode = node.ParentNode;
+                if (parentNode != null)
                 {
-                    node.ParentNode.RemoveChild(node);
+                    if (filterFn(node))
+                    {
+                        parentNode.RemoveChild(node);
+                    }
                 }
             }
         }
@@ -141,7 +122,7 @@ namespace ReadaScrub
         * @param String newTagName the new tag name to use
         * @return void
         */
-        void _replaceNodeTags(IEnumerable<HtmlNode> nodeList, string newTagName)
+        void _replaceNodeTags(IEnumerable<ReadabilityNode> nodeList, string newTagName)
         {
             foreach (var node in nodeList)
             {
@@ -149,13 +130,13 @@ namespace ReadaScrub
             }
         }
 
-        List<HtmlNode> _concatHtmlNodeCollections(params IEnumerable<HtmlNode>[] lists) => lists.SelectMany(p => p).ToList();
+        List<ReadabilityNode> _concatHtmlNodeCollections(params IEnumerable<ReadabilityNode>[] lists) => lists.SelectMany(p => p).ToList();
 
 
         private string Html;
         private Uri BaseUri;
         HtmlDocument root;
-        HtmlNode doc => doc;
+        HtmlNode doc;
 
         ParserFlags Options;
 
@@ -171,7 +152,7 @@ namespace ReadaScrub
             this.Html = Html;
             this.BaseUri = baseUri;
             root = new HtmlDocument();
-
+            doc = root.DocumentNode;
 
             // Start with all flags set
             this.Options = Options;
@@ -187,7 +168,7 @@ namespace ReadaScrub
         ///  subtree, except those that match CLASSES_TO_PRESERVE and
         ///  the classesToPreserve array from the options object.
         /// </summary>
-        void _cleanClasses(HtmlNode node)
+        void _cleanClasses(ReadabilityNode node)
         {
             var classesToPreserve = CLASSES_TO_PRESERVE;
             var classNameV1 = node.Attributes["class"].Value;
@@ -208,7 +189,7 @@ namespace ReadaScrub
 
             foreach (var child in node.ChildNodes)
             {
-                this._cleanClasses((HtmlNode)child);
+                this._cleanClasses((ReadabilityNode)child);
             }
         }
 
@@ -217,7 +198,7 @@ namespace ReadaScrub
         /// Converts each &lt;a&gt; and &lt;img&gt; uri in the given element to an absolute URI,
         /// ignoring #ref URIs.
         /// </summary> 
-        void _fixRelativeUris(HtmlNode articleContent)
+        void _fixRelativeUris(ReadabilityNode articleContent)
         {
             var baseURI = new Uri("http://" + BaseUri.Host);
             var documentURI = BaseUri;
@@ -311,8 +292,8 @@ namespace ReadaScrub
                 // Check if we have an heading containing this exact string, so we
                 // could assume it's the full title.
                 var headings = this._concatHtmlNodeCollections(
-                  doc.GetElementsByName("h1").Cast<HtmlNode>(),
-                  doc.GetElementsByName("h2").Cast<HtmlNode>()
+                  doc.GetElementsByName("h1").Cast<ReadabilityNode>(),
+                  doc.GetElementsByName("h2").Cast<ReadabilityNode>()
                 );
 
                 var match = headings.Where(p => p.InnerText == curTitle).Any();
@@ -367,13 +348,13 @@ namespace ReadaScrub
         void _prepDocument()
         {
             // Remove all style tags in head
-            this._removeNodes(doc.Descendants().Cast<HtmlNode>(), p => p.Name == "style");
+            this._removeNodes(doc.Descendants().Cast<ReadabilityNode>(), p => p.Name == "style");
             var bodyElem = doc.SelectSingleNode("body");
             if (bodyElem != null)
             {
                 this._replaceBrs(bodyElem);
             }
-            this._replaceNodeTags(doc.GetElementsByName("font").Cast<HtmlNode>(), "SPAN");
+            this._replaceNodeTags(doc.GetElementsByName("font").Cast<ReadabilityNode>(), "SPAN");
         }
 
 
@@ -458,7 +439,7 @@ namespace ReadaScrub
          * @param Element
          * @return void
          **/
-        void _prepArticle(HtmlNode articleContent)
+        void _prepArticle(ReadabilityNode articleContent)
         {
             this._cleanStyles(articleContent);
 
@@ -481,7 +462,7 @@ namespace ReadaScrub
             // which means we don't remove the top candidates even they have "share".
             foreach (var topCandidate in articleContent.ChildNodes)
             {
-                this._cleanMatchedNodes((HtmlNode)topCandidate, Patterns.prepArticle1);
+                this._cleanMatchedNodes((ReadabilityNode)topCandidate, Patterns.prepArticle1);
             }
 
             // If there is only one h2 and its text content substantially equals article title,
@@ -545,19 +526,19 @@ namespace ReadaScrub
         }
 
 
-        List<HtmlNode> _getAllNodesWithTag(HtmlNode node, params string[] tagNames)
+        List<ReadabilityNode> _getAllNodesWithTag(ReadabilityNode node, params string[] tagNames)
         {
             return node.Descendants()
                        .Select(p =>
                        {
-                           var accumulator = new List<HtmlNode>();
+                           var accumulator = new List<ReadabilityNode>();
                            foreach (var sel in tagNames)
                            {
-                               var acc = new List<HtmlNode>();
+                               var acc = new List<ReadabilityNode>();
 
                                foreach (var n in p.SelectNodes(sel))
                                {
-                                   acc.Add((HtmlNode)n);
+                                   acc.Add((ReadabilityNode)n);
                                }
                            }
                            return accumulator;
@@ -581,7 +562,7 @@ namespace ReadaScrub
             return (_byline.Length > 0) && (_byline.Length < 100);
         }
 
-        bool _checkByline(HtmlNode node, string matchString)
+        bool _checkByline(ReadabilityNode node, string matchString)
         {
             if (_articleByline != null)
             {
@@ -599,20 +580,20 @@ namespace ReadaScrub
             return false;
         }
 
-        List<HtmlNode> _getNodeAncestors(HtmlNode node, uint maxDepth)
+        List<ReadabilityNode> _getNodeAncestors(ReadabilityNode node, uint maxDepth)
         {
 
             var i = 0;
-            var ancestors = new List<HtmlNode>();
-            var rNode = (HtmlNode)node;
+            var ancestors = new List<ReadabilityNode>();
+            var rNode = (ReadabilityNode)node;
 
             while (node.ParentNode != null)
             {
-                rNode.SetAttributeValue("READABILITY_Level", i.ToString());
-                ancestors.Add((HtmlNode)rNode.ParentNode);
+                rNode.Level = i;
+                ancestors.Add((ReadabilityNode)rNode.ParentNode);
                 if (++i == maxDepth)
                     break;
-                rNode = (HtmlNode)rNode.ParentNode;
+                rNode = (ReadabilityNode)rNode.ParentNode;
             }
 
             return ancestors;
@@ -628,7 +609,7 @@ namespace ReadaScrub
         {
             var metadata = new ArticleMetadata();
             var values = new Dictionary<string, string>();
-            var metaElements = doc.GetElementsByName("meta").Cast<HtmlNode>();
+            var metaElements = doc.GetElementsByName("meta").Cast<ReadabilityNode>();
 
 
             // Find description tags.
@@ -707,12 +688,10 @@ namespace ReadaScrub
          *
          * @param Element
         **/
-        void _removeScripts(HtmlNode elem)
-        {
-            foreach (var k in doc.GetElementsByTagName("script"))
-                k.ParentNode?.RemoveChild(k);
-            foreach (var k in doc.GetElementsByTagName("noscript"))
-                k.ParentNode?.RemoveChild(k);
+        void _removeScripts(ReadabilityNode elem)
+        { 
+            this._removeNodes(doc.GetElementsByTagName("script"), _ => true);
+            this._removeNodes(doc.GetElementsByTagName("noscript"), _ => true);
         }
 
         /**
@@ -722,7 +701,7 @@ namespace ReadaScrub
          *
          * @param Element
         **/
-        bool _hasSinglePInsideElement(HtmlNode element)
+        bool _hasSinglePInsideElement(ReadabilityNode element)
         {
             // There should be exactly 1 element child which is a P:
             if (element.ChildNodes.Count != 1 || element.FirstChild.Name != "P")
@@ -738,7 +717,7 @@ namespace ReadaScrub
             }).Any();
         }
 
-        bool _isElementWithoutContent(HtmlNode node)
+        bool _isElementWithoutContent(ReadabilityNode node)
         {
             return node.NodeType == HtmlNodeType.Element &&
               node.InnerText.Trim().Length == 0 &&
@@ -753,12 +732,12 @@ namespace ReadaScrub
          *
          * @param Element
          */
-        bool _hasChildBlockElement(HtmlNode element)
+        bool _hasChildBlockElement(ReadabilityNode element)
         {
             return element.ChildNodes.Where((node) =>
                    {
                        return DIV_TO_P_ELEMS.Contains(node.Name) ||
-                       _hasChildBlockElement((HtmlNode)node);
+                       _hasChildBlockElement((ReadabilityNode)node);
                    }).Any();
         }
 
@@ -770,7 +749,7 @@ namespace ReadaScrub
          * @param Boolean normalizeSpaces (default: true)
          * @return string
         **/
-        string _getInnerText(HtmlNode e, bool normalizeSpaces = true)
+        string _getInnerText(ReadabilityNode e, bool normalizeSpaces = true)
 
         {
             var textContent = e.InnerText.Trim();
@@ -790,7 +769,7 @@ namespace ReadaScrub
          * @param string - what to split on. Default is ","
          * @return number (integer)
         **/
-        int _getCharCount(HtmlNode e, string s = ",")
+        int _getCharCount(ReadabilityNode e, string s = ",")
         {
             return Regex.Split(this._getInnerText(e), s).Count();
         }
@@ -802,7 +781,7 @@ namespace ReadaScrub
          * @param Element
          * @return void
         **/
-        void _cleanStyles(HtmlNode e)
+        void _cleanStyles(ReadabilityNode e)
         {
             if (e == null || e.Name.ToLower() == "svg")
                 return;
@@ -822,11 +801,11 @@ namespace ReadaScrub
                 }
             }
 
-            var cur = (HtmlNode)e.FirstChild;
+            var cur = (ReadabilityNode)e.FirstChild;
             while (cur != null)
             {
                 this._cleanStyles(cur);
-                cur = (HtmlNode)cur.NextSibling;
+                cur = (ReadabilityNode)cur.NextSibling;
             }
         }
 
@@ -837,7 +816,7 @@ namespace ReadaScrub
          * @param Element
          * @return number (float)
         **/
-        float _getLinkDensity(HtmlNode element)
+        float _getLinkDensity(ReadabilityNode element)
         {
             var textLength = this._getInnerText(element).Length;
             if (textLength == 0)
@@ -859,7 +838,7 @@ namespace ReadaScrub
          * @param Element
          * @return number (Integer)
         **/
-        int _getClassWeight(HtmlNode e)
+        int _getClassWeight(ReadabilityNode e)
         {
             if (!Options.HasFlag(ParserFlags.FLAG_WEIGHT_CLASSES))
                 return 0;
@@ -897,7 +876,7 @@ namespace ReadaScrub
          * @param string tag to clean
          * @return void
          **/
-        void _clean(HtmlNode e, string tag)
+        void _clean(ReadabilityNode e, string tag)
         {
             var embedTags = new string[] { "object", "embed", "iframe" };
 
@@ -935,7 +914,7 @@ namespace ReadaScrub
          * @param  Function    filterFn a filter to invoke to determine whether this node "counts"
          * @return Boolean
          */
-        bool _hasAncestorTag(HtmlNode node, string tagName, int maxDepth, Func<HtmlNode, bool> filterFn)
+        bool _hasAncestorTag(ReadabilityNode node, string tagName, int maxDepth, Func<ReadabilityNode, bool> filterFn)
         {
             tagName = tagName.ToUpper();
             var depth = 0;
@@ -943,9 +922,9 @@ namespace ReadaScrub
             {
                 if (maxDepth > 0 && depth > maxDepth)
                     return false;
-                if (node.ParentNode.Name == tagName && filterFn((HtmlNode)node.ParentNode))
+                if (node.ParentNode.Name == tagName && filterFn((ReadabilityNode)node.ParentNode))
                     return true;
-                node = (HtmlNode)node.ParentNode;
+                node = (ReadabilityNode)node.ParentNode;
                 depth++;
             }
             return false;
@@ -955,7 +934,7 @@ namespace ReadaScrub
         /**
          * Return an object indicating how many rows and columns this table has.
          */
-        (int rows, int columns) _getRowAndColumnCount(HtmlNode table)
+        (int rows, int columns) _getRowAndColumnCount(ReadabilityNode table)
         {
             var rows = 0;
             var columns = 0;
@@ -963,7 +942,7 @@ namespace ReadaScrub
             foreach (var tr in trs)
             {
 
-                var rowspan = Convert<int>(tr.Attributes["rowspan"]?.Value);
+                var rowspan = SilentIntParse(tr.Attributes["rowspan"]?.Value);
 
                 rows += rowspan;
 
@@ -973,7 +952,7 @@ namespace ReadaScrub
 
                 foreach (var cell in cells)
                 {
-                    var colspan = Convert<int>(tr.Attributes["colspan"]?.Value);
+                    var colspan = SilentIntParse(tr.Attributes["colspan"]?.Value);
                     columnsInThisRow += colspan;
                 }
 
@@ -982,32 +961,22 @@ namespace ReadaScrub
             return (rows, columns);
         }
 
-
-        private T Convert<T>(string value)
+        int SilentIntParse(string data, int defVal = 0)
         {
-            try
+            if (int.TryParse(data, out int res))
             {
-                var converter = TypeDescriptor.GetConverter(typeof(T));
-                if (converter != null)
-                {
-                    // Cast ConvertFromString(string text) : object to (T)
-                    return (T)converter.ConvertFromString(value);
-                }
-                return default(T);
+                return res;
             }
-            catch (NotSupportedException)
-            {
-                return default(T);
-            }
+            else
+                return defVal;
         }
-
 
         /**
          * Look for "data" (as opposed to "layout") tables, for which we use
          * similar checks as
          * https://dxr.mozilla.org/mozilla-central/rev/71224049c0b52ab190564d3ea0eab089a159a4cf/accessible/html/HTMLTableAccessible.cpp#920
          */
-        void _markDataTables(HtmlNode eroot)
+        void _markDataTables(ReadabilityNode eroot)
         {
             var tables = eroot.GetElementsByTagName("table");
             foreach (var table in tables)
@@ -1015,33 +984,27 @@ namespace ReadaScrub
                 var role = table.Attributes["role"]?.Value;
                 if (role == "presentation")
                 {
-
-                    table.SetAttributeValue("READABILITY_IsDataTable", false.ToString());
-
+                    table.IsDataTable = false;
                     continue;
                 }
 
-                var datatable = Convert<int>(table.Attributes["datatable"]?.Value);
+                var datatable = SilentIntParse(table.Attributes["datatable"]?.Value);
                 if (datatable == 0)
                 {
-                    table.SetAttributeValue("READABILITY_IsDataTable", false.ToString());
-
+                    table.IsDataTable = false;
                     continue;
                 }
                 var summary = table.Attributes["summary"];
                 if (summary == null)
                 {
-
-                    table.SetAttributeValue("READABILITY_IsDataTable", true.ToString());
-
+                    table.IsDataTable = true;
                     continue;
                 }
 
                 var caption = table.GetElementsByTagName("caption").First();
                 if (caption != null && caption.ChildNodes.Count() > 0)
                 {
-                    table.SetAttributeValue("READABILITY_IsDataTable", true.ToString());
-
+                    table.IsDataTable = true;
                     continue;
                 }
 
@@ -1056,27 +1019,25 @@ namespace ReadaScrub
                 if (dataTableDescendants.Any(p => descendantExists(p)))
                 {
                     Debug.WriteLine("Data table because found data-y descendant");
-                    table.SetAttributeValue("READABILITY_IsDataTable", true.ToString());
+                    table.IsDataTable = true;
                     continue;
                 }
 
                 // Nested tables indicate a layout table:
                 if (table.GetElementsByTagName("table").Any())
                 {
-                    table.SetAttributeValue("READABILITY_IsDataTable", false.ToString());
+                    table.IsDataTable = false;
                     continue;
                 }
 
                 var sizeInfo = this._getRowAndColumnCount(table);
                 if (sizeInfo.rows >= 10 || sizeInfo.columns > 4)
                 {
-                    table.SetAttributeValue("READABILITY_IsDataTable", true.ToString());
+                    table.IsDataTable = true;
                     continue;
                 }
                 // Now just go by size entirely:
-                var idt = sizeInfo.rows * sizeInfo.columns > 10;
-                table.SetAttributeValue("READABILITY_IsDataTable", idt.ToString());
-
+                table.IsDataTable = sizeInfo.rows * sizeInfo.columns > 10;
             }
         }
 
@@ -1086,7 +1047,7 @@ namespace ReadaScrub
          *
          * @return void
          **/
-        void _cleanConditionally(HtmlNode e, string tag)
+        void _cleanConditionally(ReadabilityNode e, string tag)
         {
             if (!Options.HasFlag(ParserFlags.FLAG_CLEAN_CONDITIONALLY))
                 return;
@@ -1101,7 +1062,7 @@ namespace ReadaScrub
             this._removeNodes(e.GetElementsByTagName(tag), (node) =>
             {
                 // First check if we"re in a data table, in which case don"t remove us.
-                if (this._hasAncestorTag(node, "table", -1, p => p.GetRDProperty<bool>("IsDataTable", "false")))
+                if (this._hasAncestorTag(node, "table", -1, p => p.IsDataTable))
                 {
                     return false;
                 }
@@ -1158,7 +1119,7 @@ namespace ReadaScrub
          * @param RegExp match id/class combination.
          * @return void
          **/
-        void _cleanMatchedNodes(HtmlNode e, Regex regex)
+        void _cleanMatchedNodes(ReadabilityNode e, Regex regex)
         {
             var endOfSearchMarkerNode = this._getNextNode(e, true);
             var next = this._getNextNode(e, false);
@@ -1181,7 +1142,7 @@ namespace ReadaScrub
          * @param Element
          * @return void
         **/
-        void _cleanHeaders(HtmlNode e)
+        void _cleanHeaders(ReadabilityNode e)
         {
             for (var headerIndex = 1; headerIndex < 3; headerIndex += 1)
             {
@@ -1201,7 +1162,7 @@ namespace ReadaScrub
          */
         bool isProbablyReaderable(bool helperIsVisible)
         {
-            var nodes = this._getAllNodesWithTag((HtmlNode)doc, "p", "pre");
+            var nodes = this._getAllNodesWithTag((ReadabilityNode)doc, "p", "pre");
 
             // Get <div> nodes which have <br> node(s) and append them into the `nodes` variable.
             // Some articles' DOM structures might look like
@@ -1210,13 +1171,13 @@ namespace ReadaScrub
             //   <br>
             //   Sentences<br>
             // </div>
-            var brNodes = this._getAllNodesWithTag((HtmlNode)doc, "div > br");
+            var brNodes = this._getAllNodesWithTag((ReadabilityNode)doc, "div > br");
             if (brNodes.Count() > 0)
             {
-                var set = new List<HtmlNode>();
+                var set = new List<ReadabilityNode>();
                 foreach (var node in brNodes)
                 {
-                    set.Add((HtmlNode)node.ParentNode);
+                    set.Add((ReadabilityNode)node.ParentNode);
                 }
                 nodes = set.Concat(nodes).ToList();
             }
@@ -1262,6 +1223,7 @@ namespace ReadaScrub
         }
 
 
+
         /**
          * Initialize a node with the readability object. Also checks the
          * className/id for special names to add to its score.
@@ -1269,21 +1231,21 @@ namespace ReadaScrub
          * @param Element
          * @return void
         **/
-        void _initializeNode(HtmlNode node)
+        void _initializeNode(ReadabilityNode node)
         {
-            node.SetRDProperty("Initialized", true);
-            node.SetRDProperty("ContentScore", 0x0);
+            node.IsReadabilityInitialized = true;
+            node.ContentScore = 0;
 
             switch (node.Name.ToUpperInvariant())
             {
                 case "DIV":
-                    node.SetRDProperty("ContentScore", node.GetRDProperty<int>("ContentScore") + 5);
+                    node.ContentScore += 5;
                     break;
 
                 case "PRE":
                 case "TD":
                 case "BLOCKQUOTE":
-                    node.SetRDProperty("ContentScore", node.GetRDProperty<int>("ContentScore") + 3);
+                    node.ContentScore += 3;
                     break;
 
                 case "ADDRESS":
@@ -1294,7 +1256,7 @@ namespace ReadaScrub
                 case "DT":
                 case "LI":
                 case "FORM":
-                    node.SetRDProperty("ContentScore", node.GetRDProperty<int>("ContentScore") - 3);
+                    node.ContentScore -= 3;
                     break;
 
                 case "H1":
@@ -1304,17 +1266,15 @@ namespace ReadaScrub
                 case "H5":
                 case "H6":
                 case "TH":
-                    node.SetRDProperty("ContentScore", node.GetRDProperty<int>("ContentScore") - 5);
+                    node.ContentScore -= 5;
                     break;
             }
 
-
-            node.SetRDProperty("ContentScore", node.GetRDProperty<int>("ContentScore") - this._getClassWeight(node));
-
+            node.ContentScore += this._getClassWeight(node);
         }
 
 
-        HtmlNode _removeAndGetNext(HtmlNode node)
+        ReadabilityNode _removeAndGetNext(ReadabilityNode node)
         {
             var nextNode = this._getNextNode(node, true);
             node.ParentNode.RemoveChild(node);
@@ -1329,26 +1289,26 @@ namespace ReadaScrub
          *
          * Calling this in a loop will traverse the DOM depth-first.
          */
-        HtmlNode _getNextNode(HtmlNode node, bool ignoreSelfAndKids)
+        ReadabilityNode _getNextNode(ReadabilityNode node, bool ignoreSelfAndKids)
         {
             // First check for kids if those aren't being ignored
             if (!ignoreSelfAndKids && node.FirstChild != null)
             {
-                return (HtmlNode)node.FirstChild;
+                return (ReadabilityNode)node.FirstChild;
             }
             // Then for siblings...
             if (node.NextSibling != null)
             {
-                return (HtmlNode)node.NextSibling;
+                return (ReadabilityNode)node.NextSibling;
             }
             // And finally, move up the parent chain *and* find a sibling
             // (because this is depth-first traversal, we will have already
             // seen the parent nodes themselves).
             do
             {
-                node = (HtmlNode)node.ParentNode;
+                node = (ReadabilityNode)node.ParentNode;
             } while (node != null && node.NextSibling != null);
-            return node != null ? (HtmlNode)node : (HtmlNode)node.NextSibling;
+            return node != null ? (ReadabilityNode)node : (ReadabilityNode)node.NextSibling;
         }
 
 
@@ -1360,7 +1320,7 @@ namespace ReadaScrub
          * @param page a document to run upon. Needs to be a full document, complete with body.
          * @return Element
         **/
-        HtmlNode _grabArticle()
+        ReadabilityNode _grabArticle()
         {
             Debug.WriteLine("**** grabArticle ****");
 
@@ -1383,8 +1343,8 @@ namespace ReadaScrub
                 // First, node prepping. Trash nodes that look cruddy (like ones with the
                 // class name "comment", etc), and turn divs into P tags where they have been
                 // used inappropriately (as in, where they contain no other block level elements.)
-                var elementsToScore = new List<HtmlNode>();
-                var node = (HtmlNode)page;
+                var elementsToScore = new List<ReadabilityNode>();
+                var node = (ReadabilityNode)page;
 
                 while (node != null)
                 {
@@ -1437,7 +1397,7 @@ namespace ReadaScrub
                         {
                             var newNode = node.ChildNodes[0];
                             node.ParentNode.ReplaceChild(newNode, node);
-                            node = (HtmlNode)newNode;
+                            node = (ReadabilityNode)newNode;
                             elementsToScore.Add(node);
                         }
                         else if (!this._hasChildBlockElement(node))
@@ -1472,7 +1432,7 @@ namespace ReadaScrub
                  * A score is determined by things like number of commas, class names, etc. Maybe eventually link density.
                 **/
                 // var candidates = [];
-                var candidates = new List<HtmlNode>();
+                var candidates = new List<ReadabilityNode>();
 
                 foreach (var elementToScore in elementsToScore)
                 {
@@ -1506,7 +1466,7 @@ namespace ReadaScrub
                         if (ancestor.Name.Length > 0 || ancestor.ParentNode != null)
                             continue;
 
-                        if (!ancestor.GetRDProperty<bool>("Initialized"))
+                        if (!ancestor.IsReadabilityInitialized)
                         {
                             this._initializeNode(ancestor);
                             candidates.Add(ancestor);
@@ -1517,22 +1477,20 @@ namespace ReadaScrub
                         // - grandparent:        2
                         // - great grandparent+: ancestor level * 3
                         var scoreDivider = 1;
-                        if (ancestor.GetRDProperty<int>("Level") == 0)
+                        if (ancestor.Level == 0)
                             scoreDivider = 1;
-                        else if (ancestor.GetRDProperty<int>("Level") == 1)
+                        else if (ancestor.Level == 1)
                             scoreDivider = 2;
                         else
-                            scoreDivider = ancestor.GetRDProperty<int>("Level") * 3;
-
-                        node.SetRDProperty("ContentScore", node.GetRDProperty<int>("ContentScore") + contentScore / scoreDivider);
-
+                            scoreDivider = ancestor.Level * 3;
+                        ancestor.ContentScore += contentScore / scoreDivider;
                     }
                 }
 
                 // After we've calculated scores, loop through all of the possible
                 // candidate nodes we found and find the one with the highest score.
 
-                var topCandidates = new List<HtmlNode>();
+                var topCandidates = new List<ReadabilityNode>();
 
                 foreach (var candidate in candidates)
                 {
@@ -1540,8 +1498,8 @@ namespace ReadaScrub
                     // Scale the final candidates score based on link density. Good content
                     // should have a relatively small link density (5% or less) and be mostly
                     // unaffected by this operation.
-                    var candidateScore = candidate.GetRDProperty<int>("ContentScore") * (1 - this._getLinkDensity(candidate));
-                    candidate.SetRDProperty("ContentScore", candidateScore);
+                    var candidateScore = candidate.ContentScore * (1 - this._getLinkDensity(candidate));
+                    candidate.ContentScore = candidateScore;
 
                     Debug.WriteLine("Candidate:", candidate, "with score " + candidateScore);
 
@@ -1549,7 +1507,7 @@ namespace ReadaScrub
                     {
                         var aTopCandidate = topCandidates[t];
 
-                        if (aTopCandidate != null || candidateScore > aTopCandidate.GetRDProperty<int>("ContentScore"))
+                        if (aTopCandidate != null || candidateScore > aTopCandidate.ContentScore)
                         {
                             topCandidates.Insert(t, candidate);
                             if (topCandidates.Count() > DEFAULT_N_TOP_CANDIDATES)
@@ -1563,14 +1521,14 @@ namespace ReadaScrub
 
                 var neededToCreateTopCandidate = false;
 
-                HtmlNode parentOfTopCandidate;
+                ReadabilityNode parentOfTopCandidate;
 
                 // If we still have no top candidate, just use the body as a last resort.
                 // We also have to copy the body node so it is something we can modify.
                 if (topCandidate == null || topCandidate.Name == "BODY")
                 {
                     // Move all of the page's children into topCandidate
-                    topCandidate = (HtmlNode)root.CreateElement("DIV");
+                    topCandidate = (ReadabilityNode)root.CreateElement("DIV");
                     neededToCreateTopCandidate = true;
                     // Move everything (not just elements, also text nodes etc.) into the container
                     // so we even include text directly in the body:
@@ -1590,11 +1548,11 @@ namespace ReadaScrub
                 {
                     // Find a better top candidate node if it contains (at least three) nodes which belong to `topCandidates` array
                     // and whose scores are quite closed with current `topCandidate` node.
-                    var alternativeCandidateAncestors = new List<List<HtmlNode>>();
+                    var alternativeCandidateAncestors = new List<List<ReadabilityNode>>();
 
                     for (var i = 1; i < topCandidates.Count(); i++)
                     {
-                        if (topCandidates[i].GetRDProperty<int>("ContentScore") / topCandidate.GetRDProperty<int>("ContentScore") >= 0.75)
+                        if (topCandidates[i].ContentScore / topCandidate.ContentScore >= 0.75)
                         {
 
                             alternativeCandidateAncestors.Add(this._getNodeAncestors(topCandidates[i], 3));
@@ -1603,7 +1561,7 @@ namespace ReadaScrub
                     var MINIMUM_TOPCANDIDATES = 3;
                     if (alternativeCandidateAncestors.Count() >= MINIMUM_TOPCANDIDATES)
                     {
-                        parentOfTopCandidate = (HtmlNode)topCandidate.ParentNode;
+                        parentOfTopCandidate = (ReadabilityNode)topCandidate.ParentNode;
                         while (parentOfTopCandidate.Name != "BODY")
                         {
                             var listsContainingThisAncestor = 0;
@@ -1617,10 +1575,10 @@ namespace ReadaScrub
                                 topCandidate = parentOfTopCandidate;
                                 break;
                             }
-                            parentOfTopCandidate = (HtmlNode)parentOfTopCandidate.ParentNode;
+                            parentOfTopCandidate = (ReadabilityNode)parentOfTopCandidate.ParentNode;
                         }
                     }
-                    if (!topCandidate.GetRDProperty<bool>("Initialized"))
+                    if (!topCandidate.IsReadabilityInitialized)
                     {
                         this._initializeNode(topCandidate);
                     }
@@ -1632,18 +1590,18 @@ namespace ReadaScrub
                     // lurking in other places that we want to unify in. The sibling stuff
                     // below does some of that - but only if we've looked high enough up the DOM
                     // tree.
-                    parentOfTopCandidate = (HtmlNode)topCandidate.ParentNode;
-                    var lastScore = topCandidate.GetRDProperty<int>("ContentScore");
+                    parentOfTopCandidate = (ReadabilityNode)topCandidate.ParentNode;
+                    var lastScore = topCandidate.ContentScore;
                     // The scores shouldn't get too low.
                     var scoreThreshold = lastScore / 3;
                     while (parentOfTopCandidate.Name != "BODY")
                     {
-                        if (!parentOfTopCandidate.GetRDProperty<bool>("Initialized"))
+                        if (!parentOfTopCandidate.IsReadabilityInitialized)
                         {
-                            parentOfTopCandidate = (HtmlNode)parentOfTopCandidate.ParentNode;
+                            parentOfTopCandidate = (ReadabilityNode)parentOfTopCandidate.ParentNode;
                             continue;
                         }
-                        var parentScore = parentOfTopCandidate.GetRDProperty<int>("ContentScore");
+                        var parentScore = parentOfTopCandidate.ContentScore;
                         if (parentScore < scoreThreshold)
                             break;
                         if (parentScore > lastScore)
@@ -1652,19 +1610,19 @@ namespace ReadaScrub
                             topCandidate = parentOfTopCandidate;
                             break;
                         }
-                        lastScore = parentOfTopCandidate.GetRDProperty<int>("ContentScore");
-                        parentOfTopCandidate = (HtmlNode)parentOfTopCandidate.ParentNode;
+                        lastScore = parentOfTopCandidate.ContentScore;
+                        parentOfTopCandidate = (ReadabilityNode)parentOfTopCandidate.ParentNode;
                     }
 
                     // If the top candidate is the only child, use parent instead. This will help sibling
                     // joining logic when adjacent content is actually located in parent's sibling node.
-                    parentOfTopCandidate = (HtmlNode)topCandidate.ParentNode;
+                    parentOfTopCandidate = (ReadabilityNode)topCandidate.ParentNode;
                     while (parentOfTopCandidate.Name != "BODY" && parentOfTopCandidate.ChildNodes.Count() == 1)
                     {
                         topCandidate = parentOfTopCandidate;
-                        parentOfTopCandidate = (HtmlNode)topCandidate.ParentNode;
+                        parentOfTopCandidate = (ReadabilityNode)topCandidate.ParentNode;
                     }
-                    if (!topCandidate.GetRDProperty<bool>("Initialized"))
+                    if (!topCandidate.IsReadabilityInitialized)
                     {
                         this._initializeNode(topCandidate);
                     }
@@ -1676,18 +1634,18 @@ namespace ReadaScrub
                 var articleContent = root.CreateElement("DIV");
                 articleContent.SetAttributeValue("id", "readability-content");
 
-                var siblingScoreThreshold = Math.Max(10, topCandidate.GetRDProperty<int>("ContentScore") * 0.2);
+                var siblingScoreThreshold = Math.Max(10, topCandidate.ContentScore * 0.2);
                 // Keep potential top candidate's parent node to try to get text direction of it later.
-                parentOfTopCandidate = (HtmlNode)topCandidate.ParentNode;
-                var siblings = parentOfTopCandidate.ChildNodes.Cast<HtmlNode>().ToArray();
+                parentOfTopCandidate = (ReadabilityNode)topCandidate.ParentNode;
+                var siblings = parentOfTopCandidate.ChildNodes.Cast<ReadabilityNode>().ToArray();
 
                 for (int s = 0, sl = siblings.Count(); s < sl; s++)
                 {
                     var sibling = siblings[s];
                     var append = false;
 
-                    Debug.WriteLine("Looking at sibling node:", sibling, sibling.GetRDProperty<bool>("Initialized") ? ("with score " + sibling.GetRDProperty<int>("ContentScore")) : "");
-                    Debug.WriteLine("Sibling has score", sibling.GetRDProperty<bool>("Initialized") ? sibling.GetRDProperty<int>("ContentScore").ToString() : "Unknown");
+                    Debug.WriteLine("Looking at sibling node:", sibling, sibling.IsReadabilityInitialized ? ("with score " + sibling.ContentScore) : "");
+                    Debug.WriteLine("Sibling has score", sibling.IsReadabilityInitialized ? sibling.ContentScore.ToString() : "Unknown");
 
                     if (sibling == topCandidate)
                     {
@@ -1699,10 +1657,10 @@ namespace ReadaScrub
 
                         // Give a bonus if sibling nodes and top candidates have the example same classname
                         if (sibling.GetAttributeValue("class", "") == topCandidate.GetAttributeValue("class", "") && topCandidate.GetAttributeValue("class", "") != "")
-                            contentBonus += topCandidate.GetRDProperty<int>("ContentScore") * 0.2;
+                            contentBonus += topCandidate.ContentScore * 0.2;
 
-                        if (sibling.GetRDProperty<bool>("Initialized") &&
-                            ((sibling.GetRDProperty<int>("ContentScore") + contentBonus) >= siblingScoreThreshold))
+                        if (sibling.IsReadabilityInitialized &&
+                            ((sibling.ContentScore + contentBonus) >= siblingScoreThreshold))
                         {
                             append = true;
                         }
@@ -1749,7 +1707,7 @@ namespace ReadaScrub
 
                 Debug.WriteLine("Article content pre-prep: " + articleContent.InnerHtml);
                 // So we have all of the content that we need. Now we clean it up for presentation.
-                this._prepArticle((HtmlNode)articleContent);
+                this._prepArticle((ReadabilityNode)articleContent);
                 Debug.WriteLine("Article content post-prep: " + articleContent.InnerHtml);
 
                 if (neededToCreateTopCandidate)
@@ -1788,7 +1746,7 @@ namespace ReadaScrub
                 // grabArticle with different flags set. This gives us a higher likelihood of
                 // finding the content, and the sieve approach gives us a higher likelihood of
                 // finding the -right- content.
-                // var textLength = this._getInnerText((HtmlNode)articleContent, true).Length;
+                // var textLength = this._getInnerText((ReadabilityNode)articleContent, true).Length;
                 // if (textLength < DEFAULT_CHAR_THRESHOLD)
                 // {
                 //     parseSuccessful = false;
@@ -1831,7 +1789,7 @@ namespace ReadaScrub
                 if (parseSuccessful)
                 {
                     // Find out text direction from ancestors of final top candidate.
-                    var l1 = new List<HtmlNode> { parentOfTopCandidate, topCandidate };
+                    var l1 = new List<ReadabilityNode> { parentOfTopCandidate, topCandidate };
 
                     var ancestors = l1.Concat(this._getNodeAncestors(parentOfTopCandidate, 3));
 
@@ -1844,7 +1802,7 @@ namespace ReadaScrub
                         }
                     }
 
-                    return (HtmlNode)articleContent;
+                    return (ReadabilityNode)articleContent;
                 }
             }
         }
@@ -1878,7 +1836,7 @@ namespace ReadaScrub
             // }
 
             // Remove script tags from the document.
-            this._removeScripts(doc);
+            this._removeScripts((ReadabilityNode)doc);
             this._prepDocument();
 
             var metadata = this._getArticleMetadata();
@@ -1950,8 +1908,20 @@ public class ArticleMetadata
     public string title { get; set; }
 }
 
+public class ReadabilityNode : HtmlNode
+{
+    public bool IsReadabilityInitialized { get; set; }
+    public bool IsDataTable { get; set; }
+    public double ContentScore { get; set; }
+    public int Level { get; internal set; }
+
+    public ReadabilityNode(HtmlNodeType type, HtmlDocument ownerdocument, int index) : base(type, ownerdocument, index)
+    {
+    }
+}
+
 public class Attempt
 {
-    public HtmlNode articleContent { get; set; }
+    public ReadabilityNode articleContent { get; set; }
     public uint textLength { get; set; }
 }
