@@ -27,8 +27,14 @@ namespace ReadaScrub
         public static Regex TitleRegex4 = new Regex(@"[^\|\-\\\/>»] *[\|\-\\\/>»](.*) ", _regexOptions | RegexOptions.Multiline);
         public static Regex TitleRegex5 = new Regex(@"[\|\-\\\/>»] +", _regexOptions | RegexOptions.Multiline);
 
-        
-        
+        // Match "description", or Twitter's "twitter:description" (Cards)
+        // in name attribute.
+        public static Regex namePattern = new Regex(@"^\s*((twitter)\s*:\s*)?(description|title)\s*$", _regexOptions);
+
+        // Match Facebook's Open Graph title & description properties. 
+        public static Regex propertyPattern = new Regex(@"^\s*og\s*:\s*(description|title)\s*$", _regexOptions);
+
+
     }
 
 }
