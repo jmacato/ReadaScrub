@@ -6,6 +6,7 @@
 
   <ItemGroup>
     <PackageReference Include="AngleSharp" Version="0.9.9.2" />
+    <PackageReference Include="MoreLINQ" Version="2.10.0" />
   </ItemGroup>
 
 </Project>

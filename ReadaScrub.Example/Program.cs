@@ -9,7 +9,7 @@ namespace ReadaScrub.Example
         {
             Console.WriteLine("Hello World!");
             var op = new ReadaScrub.Parser("https://www.iaea.org/topics/fusion");
-            //    var opx = op.parse();
+            await op.DoParseAsync();
         }
     }
 }
