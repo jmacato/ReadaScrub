@@ -4,8 +4,25 @@ using System.Text.RegularExpressions;
 
 namespace ReadaScrub
 {
-    public class Patterns
+    public static class Patterns
     {
+
+
+        public static string RegexTrimAndNormalize(this string input)
+        {
+            var res = input;
+            res = Regex.Replace(res, @"^[\s\n\t\r]+", "");
+
+            //
+            // The same as above, but with a $ on the end.
+            // This requires that we match at the end.
+            //
+            res = Regex.Replace(res, @"[\s\n\t\r]+$", "");
+            res = NormalizeWS.Replace(res, " ");
+
+            return res;
+        }
+
         public static RegexOptions _regexOptions = RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.ECMAScript | RegexOptions.IgnoreCase;
         public static Regex UnlikelyCandidates = new Regex("banner|breadcrumbs|combx|comment|community|cover-wrap|disqus|extra|foot|header|legends|menu|related|remark|replies|rss|shoutbox|sidebar|skyscraper|social|sponsor|supplemental|ad-break|agegate|pagination|pager|popup|yom-remote", _regexOptions);
         public static Regex MaybeCandidates = new Regex("and|article|body|column|main|shadow|section", _regexOptions);

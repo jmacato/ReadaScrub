@@ -4,5 +4,6 @@ namespace ReadaScrub
     { 
         public string Title { get; set; }
         public string Content { get; set; }
+        public bool Success { get; internal set; }
     }
 }

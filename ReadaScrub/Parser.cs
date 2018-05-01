@@ -1,4 +1,6 @@
-﻿using System;
+﻿#define FAKE_BROWSER
+
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -16,10 +18,12 @@ namespace ReadaScrub
     public class Parser
     {
         static HttpClient webClient = new HttpClient();
-
         private string UriString;
         public Uri BaseURI { get; private set; }
         public int ParagraphCharacterThreshold { get; set; } = 25;
+        string[] exceptElems = new string[] { "P", "A", "IMG" };
+        string[] attribExceptions = new string[] { "SRC", "HREF" };
+        private IHtmlDocument rootDoc;
 
         public Parser(string UriString)
         {
@@ -29,6 +33,12 @@ namespace ReadaScrub
                 SetBaseURI(res);
             else
                 throw new InvalidOperationException($"Invalid URI String '{UriString}'");
+
+#if FAKE_BROWSER
+            webClient.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "Mozilla (Chrome;Windows)");
+            webClient.DefaultRequestHeaders.TryAddWithoutValidation("Referrer", "https://www.google.com/");
+#endif
+
         }
 
         private void SetBaseURI(Uri res)
@@ -38,72 +48,174 @@ namespace ReadaScrub
 
         public async Task<string> FetchPage()
         {
-            return await webClient.GetStringAsync(BaseURI.AbsoluteUri);
+            return System.Text.Encoding.UTF8.GetString(await webClient.GetByteArrayAsync(BaseURI.AbsoluteUri));
         }
 
         public async Task<Article> DoParseAsync()
         {
             var rootPage = await FetchPage();
+
             var asParser = new HtmlParser();
-            var rootDoc = await asParser.ParseAsync(rootPage);
 
-
+            this.rootDoc = await asParser.ParseAsync(rootPage);
 
             IElement TopCandidate = rootDoc.Body;
 
-
-            FirstStagePreprocess(TopCandidate);
             PruneUnlikelyElemments(TopCandidate);
+            PruneNegativeElemments(TopCandidate);
+            FirstStagePreprocess(TopCandidate);
 
             var candidates = ScanForCandidates(TopCandidate)
                             .OrderByDescending(p => p.Score)
                             .ToList();
 
-            TopCandidate = candidates
-            .Where(p => p.Element.TagName.ToUpper() != "BODY")
-            .MaxBy(p => p.Score).Element;
+            TopCandidate = candidates.MaxBy(p => p.Score).Element;
 
-            _TEMP_RemoveAllAttribs(TopCandidate);
+            var parseSuccess = false;
 
-            Debug.WriteLine(TopCandidate.InnerHtml);
+            if (TopCandidate != null)
+            {
+                _TEMP_RemoveAttribs(TopCandidate);
+                _TEMP_TrimAndWSNormAllTextContent(TopCandidate);
+                _TEMP_TransformDanglingTextToPElem(TopCandidate);
+                _TEMP_ElemsWithAllTextOnlyToPTag(TopCandidate);
+                _TEMP_RemoveDanglingWhiteSpace(TopCandidate);
 
+                double reductionRate = 1d - ((double)TopCandidate.OuterHtml.Length / rootPage.Length);
+                reductionRate *= 100;
 
+                Debug.WriteLine($"--\nReduction Percent: {TopCandidate.OuterHtml.Length}B / {rootPage.Length}B {reductionRate:0.#####}%\n--\n");
 
-            return null;
+                parseSuccess = true;
+            }
+
+            Debug.WriteLine(TopCandidate.OuterHtml);
+
+            return new Article()
+            {
+                Success = parseSuccess,
+                Content = TopCandidate.OuterHtml
+            };
         }
 
-        private void _TEMP_RemoveAllAttribs(IElement topCandidate)
+        /// <summary>
+        /// Remove all purely whitespace nodes.
+        /// </summary>
+        private void _TEMP_RemoveDanglingWhiteSpace(INode target)
         {
-            foreach (var attr in topCandidate.Attributes.ToList())
+            foreach (var trgt in target.ChildNodes.ToList())
+                if (trgt.NodeType == NodeType.Text && Patterns.Whitespace.IsMatch(trgt.TextContent))
+                {
+                    trgt.Parent?.RemoveChild(trgt);
+                    _TEMP_RemoveDanglingWhiteSpace(trgt);
+                }
+        }
+
+        /// <summary>
+        /// Replace all elements with all childnodes text to P Tag.
+        /// </summary>
+        private void _TEMP_ElemsWithAllTextOnlyToPTag(IElement target)
+        {
+            foreach (var trgt in target.GetElementsByTagName("*")
+                                       .Where(p => !exceptElems.Any(x => x == p.TagName.ToUpper()))
+                                       .ToList())
+                if (trgt.Children.All(p => p.NodeType == NodeType.Text))
+                {
+                    var targetText = Patterns.RegexTrimAndNormalize(trgt.TextContent);
+
+                    if (targetText.Length > 0)
+                    {
+                        var newElem = rootDoc.CreateElement("p");
+                        newElem.TextContent = targetText;
+                        trgt.Parent?.AppendChild(newElem);
+                    }
+                    trgt.Parent?.RemoveChild(trgt);
+                }
+        }
+
+        private void _TEMP_TransformDanglingTextToPElem(IElement target)
+        {
+            foreach (var child in target.Children.Where(p => p.NodeType == NodeType.Text).ToList())
             {
-                topCandidate.Attributes.RemoveNamedItem(attr.Name);
-            }
-            foreach (var child in topCandidate.Children)
-            {
-                _TEMP_RemoveAllAttribs(child);
+                var newElem = rootDoc.CreateElement("p");
+                newElem.TextContent = Patterns.RegexTrimAndNormalize(child.TextContent);
+
+                child.Parent?.AppendChild(newElem);
+                child.Parent?.RemoveChild(child);
+                _TEMP_TransformDanglingTextToPElem(child);
             }
         }
 
-        private void FirstStagePreprocess(IElement bodyElem)
+        /// <summary>
+        /// Trim and normalize whitespace on all text nodes.
+        /// </summary>
+        /// <param name="target"></param>
+        private void _TEMP_TrimAndWSNormAllTextContent(IElement target)
         {
-            TransferChildAndRemove(bodyElem, "form");
-            TransferChildAndRemove(bodyElem, "script");
+            foreach (var child in target.Children.Where(p => p.NodeType == NodeType.Text))
+            {
+                child.TextContent = Patterns.RegexTrimAndNormalize(child.TextContent);
+                _TEMP_TrimAndWSNormAllTextContent(child);
+            }
+        }
+
+        private void _TEMP_RemoveAttribs(IElement target)
+        {
+            foreach (var attr in target.Attributes.ToList())
+            {
+                if (!attribExceptions.Any(p => p.ToUpper() == attr.Name.ToUpper()))
+                    target.Attributes.RemoveNamedItem(attr.Name);
+            }
+            foreach (var child in target.Children)
+            {
+                _TEMP_RemoveAttribs(child);
+            }
+        }
+
+        private void FirstStagePreprocess(IElement target)
+        {
+            TransferChildAndRemove(target, "form");
+            TransferChildAndRemove(target, "script", true);
+            TransferChildAndRemove(target, "noscript", true);
         }
 
         /// <summary>
         /// Deletes the target element and transfers its children to 
         /// its ancestor element
         /// </summary> 
-        private void TransferChildAndRemove(IElement root, string targetElemName)
+        private void TransferChildAndRemove(IElement root, string targetElemName, bool RemoveChildTextElems = false)
         {
+
             foreach (var elem in root.GetElementsByTagName(targetElemName))
             {
-                foreach (var child in elem.ChildNodes.ToList())
+
+                if (elem.ChildNodes.Any(p => p.NodeType != NodeType.Text))
                 {
-                    elem.Parent?.AppendChild(child);
+                    foreach (var child in elem.ChildNodes.ToList())
+                    {
+                        if (RemoveChildTextElems)
+                        {
+                            if (child.NodeType == NodeType.Text)
+                                continue;
+                        }
+                        elem.Parent.AppendChild(child);
+                    }
                 }
+
                 elem.Parent?.RemoveChild(elem);
 
+            }
+        }
+        private void PruneNegativeElemments(IElement targetElem)
+        {
+            foreach (var elem in targetElem.GetElementsByTagName("*"))
+            {
+                if (Patterns.NegativeCandidates.IsMatch(elem.TagName) ||
+                    Patterns.NegativeCandidates.IsMatch(elem.Id ?? " ") ||
+                    Patterns.NegativeCandidates.IsMatch(elem.ClassList.ToDelimitedString(" ") ?? " "))
+                {
+                    elem.Parent?.RemoveChild(elem);
+                }
             }
         }
 
@@ -121,7 +233,8 @@ namespace ReadaScrub
 
         private IEnumerable<(double Score, IElement Element)> ScanForCandidates(IElement targetElem)
         {
-            foreach (var elem in targetElem.GetElementsByTagName("*"))
+            foreach (var elem in targetElem.GetElementsByTagName("*")
+                                           .Where(p => p.TagName.ToUpper() != "BODY"))
             {
                 var paragraphQuery = elem.ChildNodes
                                          .Where(p => IsOverPThreshold(p));
@@ -141,12 +254,11 @@ namespace ReadaScrub
         => (Patterns.MaybeCandidates.IsMatch(p.NodeName) ||
             Patterns.PositiveCandidates.IsMatch(p.NodeName));
 
-
         private double ScoreElementForContent(IElement elem)
         {
             var highScorers = new string[] { "P", "SPAN" };
 
-            var l1 = elem.GetElementsByTagName("*")
+            var l1 = elem.ChildNodes
                  .Where(p => IsOverPThreshold(p))
                  .ToList();
 
@@ -155,64 +267,12 @@ namespace ReadaScrub
             var score = 0d;
 
             score += l1.Where(p => highScorers.Contains(p.NodeName.ToUpper())).Count();
+
             score /= elem.ChildNodes.Count();
 
-            // score *= 47;
-
-            // Add score for having elements with text content
-            // over the paragraph threshold.
-            // score += l1
-            //         .Count();
-
-            // //Add score for having elements with apparently meaningful words
-            // score *= l1
-            //         .Select(p =>
-            //         {
+            score *= Patterns.NormalizeWS.Replace(elem.TextContent.Trim(), " ").Split(' ').Where(p => p.Length > 5).Count();
 
 
-            //             var baseWordScore = Patterns.NormalizeWS.Replace(p.TextContent, " ")
-            //                      .Split(' ')
-            //                      .Select(word => word.Length > 7)
-            //                      .Count();
-
-            //             if (highScorers.Contains(p.TagName.ToUpper()))
-            //             {
-            //                 baseWordScore *= 6;
-            //             }
-            //             else
-            //             {
-            //                 baseWordScore /= 6;
-            //             }
-
-            //             return baseWordScore;
-            //         })
-            //         .Sum();
-
-            // if (Patterns.PositiveCandidates.IsMatch(elem.TagName))
-            // {
-            //     score *= 1.5;
-            // }
-            // else
-            // {
-            //     score *= 0.8;
-            // }
-
-
-            //     var links = l1
-            //             .Where(p => p.Attributes
-            //                          .Select(x => x.Name.ToUpper()).Contains("HREF"));
-
-            //     var linkCount = links.Count();
-            //     var totalChildElems = l1.Count();
-            //     var linkDensity = 1 - (linkCount / totalChildElems);
-
-            //     score *= linkDensity;
-
-            //     if (Patterns.PositiveCandidates.IsMatch(elem.TagName) ||
-            //    Patterns.PositiveCandidates.IsMatch(String.Join(" ", elem.ClassList)))
-            //     {
-            //         score *= 1.5;
-            //     }
 
             return score;
         }
@@ -225,8 +285,6 @@ namespace ReadaScrub
     }
 
 }
-
-
 
 
 
