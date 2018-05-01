@@ -20,9 +20,12 @@ namespace ReadaScrub
         static HttpClient webClient = new HttpClient();
         private string UriString;
         public Uri BaseURI { get; private set; }
-        public int ParagraphCharacterThreshold { get; set; } = 25;
-        string[] exceptElems = new string[] { "P", "A", "IMG" };
-        string[] attribExceptions = new string[] { "SRC", "HREF" };
+        
+        public int ParagraphCharacterThreshold { get; set; } = 30;
+
+        string[] exceptElems_PTag = new string[] { "P", "A", "IMG", "H1", "H2", "H3", "H4", "H5", "BLOCKQUOTE", "CODE" };
+        string[] attribExceptions = new string[] { "SRC", "HREF", "CLASS" };
+
         private IHtmlDocument rootDoc;
 
         public Parser(string UriString)
@@ -117,7 +120,7 @@ namespace ReadaScrub
         private void _TEMP_ElemsWithAllTextOnlyToPTag(IElement target)
         {
             foreach (var trgt in target.GetElementsByTagName("*")
-                                       .Where(p => !exceptElems.Any(x => x == p.TagName.ToUpper()))
+                                       .Where(p => !exceptElems_PTag.Any(x => x == p.TagName.ToUpper()))
                                        .ToList())
                 if (trgt.Children.All(p => p.NodeType == NodeType.Text))
                 {
