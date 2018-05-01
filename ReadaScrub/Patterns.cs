@@ -1,6 +1,6 @@
 using System;
 using System.Text.RegularExpressions;
-
+using System.Web;
 
 namespace ReadaScrub
 {
@@ -8,17 +8,18 @@ namespace ReadaScrub
     {
 
 
-        public static string RegexTrimAndNormalize(this string input)
+        public static string RegexTrimNormDecode(this string input)
         {
             var res = input;
+            res = res.Trim();
             res = Regex.Replace(res, @"^[\s\n\t\r]+", "");
-
             //
             // The same as above, but with a $ on the end.
             // This requires that we match at the end.
             //
             res = Regex.Replace(res, @"[\s\n\t\r]+$", "");
             res = NormalizeWS.Replace(res, " ");
+            res = HttpUtility.HtmlDecode(res);
 
             return res;
         }
@@ -37,7 +38,7 @@ namespace ReadaScrub
         public static Regex PrevLink = new Regex("(prev|earl|old|new|<|«)", _regexOptions);
         public static Regex Whitespace = new Regex("^\\s*$", _regexOptions);
 
-
+        public static Regex HTMLComments = new Regex("<!--[\\s\\S]*?(?:-->)?<!---+>?|<!(?![dD][oO][cC][tT][yY][pP][eE]|\\[CDATA\\[)[^>]*>?|<[?][^>]*>?", _regexOptions);
 
         public static Regex HasContent = new Regex("^\\S$*", _regexOptions);
 

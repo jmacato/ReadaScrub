@@ -3,15 +3,19 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
+using System.Xml.Linq;
 using AngleSharp;
 using AngleSharp.Dom;
 using AngleSharp.Dom.Html;
 using AngleSharp.Parser.Html;
 using MoreLinq;
+// using VaderSharp;
 
 namespace ReadaScrub
 {
@@ -19,14 +23,13 @@ namespace ReadaScrub
     {
         static HttpClient webClient = new HttpClient();
         private string UriString;
-        public Uri BaseURI { get; private set; }
-        
-        public int ParagraphCharacterThreshold { get; set; } = 30;
-
-        string[] exceptElems_PTag = new string[] { "P", "A", "IMG", "H1", "H2", "H3", "H4", "H5", "BLOCKQUOTE", "CODE" };
-        string[] attribExceptions = new string[] { "SRC", "HREF", "CLASS" };
+        private string[] exceptElems_PTag = new string[] { "P", "A", "IMG", "H1", "H2", "H3", "H4", "H5", "BLOCKQUOTE", "CODE" };
+        private string[] attribExceptions = new string[] { "SRC", "HREF" };
 
         private IHtmlDocument rootDoc;
+
+        public Uri BaseURI { get; private set; }
+        public int ParagraphCharacterThreshold { get; set; } = 30;
 
         public Parser(string UriString)
         {
@@ -74,8 +77,6 @@ namespace ReadaScrub
 
             TopCandidate = candidates.MaxBy(p => p.Score).Element;
 
-            var parseSuccess = false;
-
             if (TopCandidate != null)
             {
                 _TEMP_RemoveAttribs(TopCandidate);
@@ -89,16 +90,55 @@ namespace ReadaScrub
 
                 Debug.WriteLine($"--\nReduction Percent: {TopCandidate.OuterHtml.Length}B / {rootPage.Length}B {reductionRate:0.#####}%\n--\n");
 
-                parseSuccess = true;
-            }
+                // var analyzer = new SentimentIntensityAnalyzer();
 
-            Debug.WriteLine(TopCandidate.OuterHtml);
+                // var results = analyzer.PolarityScores(Patterns.RegexTrimNormDecode(TopCandidate.TextContent));
+
+                // Debug.WriteLine("-- Sentiment Analysis --");
+                // Debug.WriteLine("Positive score: " + results.Positive);
+                // Debug.WriteLine("Negative score: " + results.Negative);
+                // Debug.WriteLine("Neutral score: " + results.Neutral);
+                // Debug.WriteLine("Compound score: " + results.Compound);
+                // Debug.WriteLine("--");
+
+                string finalContent;
+
+                var sb = new StringBuilder();
+                using (var txtWriter = new StringWriter(sb))
+                {
+                    TopCandidate.ToHtml(txtWriter, new AngleSharp.XHtml.XhtmlMarkupFormatter());
+                    finalContent = sb.ToString();
+                    finalContent = Patterns.HTMLComments.Replace(finalContent, "");
+                    finalContent = FormatHtmlToXhtml(finalContent);
+                }
+
+                return new Article()
+                {
+                    Uri = BaseURI,
+                    Success = true,
+                    Content = finalContent
+                };
+            }
 
             return new Article()
             {
-                Success = parseSuccess,
-                Content = TopCandidate.OuterHtml
+                Success = false
             };
+
+        }
+
+        string FormatHtmlToXhtml(string input)
+        {
+            try
+            {
+                XDocument doc = XDocument.Parse(input);
+                return doc.ToString();
+            }
+            catch (Exception)
+            {
+                // Handle and throw if fatal exception here; don't just ignore them
+                return input;
+            }
         }
 
         /// <summary>
@@ -124,27 +164,26 @@ namespace ReadaScrub
                                        .ToList())
                 if (trgt.Children.All(p => p.NodeType == NodeType.Text))
                 {
-                    var targetText = Patterns.RegexTrimAndNormalize(trgt.TextContent);
+                    var targetText = Patterns.RegexTrimNormDecode(trgt.TextContent);
 
                     if (targetText.Length > 0)
                     {
                         var newElem = rootDoc.CreateElement("p");
                         newElem.TextContent = targetText;
-                        trgt.Parent?.AppendChild(newElem);
+                        trgt.Parent?.ReplaceChild(newElem, trgt);
                     }
-                    trgt.Parent?.RemoveChild(trgt);
                 }
         }
+
 
         private void _TEMP_TransformDanglingTextToPElem(IElement target)
         {
             foreach (var child in target.Children.Where(p => p.NodeType == NodeType.Text).ToList())
             {
                 var newElem = rootDoc.CreateElement("p");
-                newElem.TextContent = Patterns.RegexTrimAndNormalize(child.TextContent);
+                newElem.TextContent = Patterns.RegexTrimNormDecode(child.TextContent);
 
-                child.Parent?.AppendChild(newElem);
-                child.Parent?.RemoveChild(child);
+                child.Parent?.ReplaceChild(newElem, child);
                 _TEMP_TransformDanglingTextToPElem(child);
             }
         }
@@ -157,7 +196,7 @@ namespace ReadaScrub
         {
             foreach (var child in target.Children.Where(p => p.NodeType == NodeType.Text))
             {
-                child.TextContent = Patterns.RegexTrimAndNormalize(child.TextContent);
+                child.TextContent = Patterns.RegexTrimNormDecode(child.TextContent);
                 _TEMP_TrimAndWSNormAllTextContent(child);
             }
         }
