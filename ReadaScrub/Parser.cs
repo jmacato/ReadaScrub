@@ -63,13 +63,25 @@ namespace ReadaScrub
             .Where(p => p.Element.TagName.ToUpper() != "BODY")
             .MaxBy(p => p.Score).Element;
 
+            _TEMP_RemoveAllAttribs(TopCandidate);
 
-
-            Debug.WriteLine(TopCandidate.OuterHtml);
+            Debug.WriteLine(TopCandidate.InnerHtml);
 
 
 
             return null;
+        }
+
+        private void _TEMP_RemoveAllAttribs(IElement topCandidate)
+        {
+            foreach (var attr in topCandidate.Attributes.ToList())
+            {
+                topCandidate.Attributes.RemoveNamedItem(attr.Name);
+            }
+            foreach (var child in topCandidate.Children)
+            {
+                _TEMP_RemoveAllAttribs(child);
+            }
         }
 
         private void FirstStagePreprocess(IElement bodyElem)
@@ -132,6 +144,8 @@ namespace ReadaScrub
 
         private double ScoreElementForContent(IElement elem)
         {
+            var highScorers = new string[] { "P", "SPAN" };
+
             var l1 = elem.GetElementsByTagName("*")
                  .Where(p => IsOverPThreshold(p))
                  .ToList();
@@ -140,19 +154,21 @@ namespace ReadaScrub
 
             var score = 0d;
 
-            score += l1.Where(p => p.NodeName.ToUpper() == "P").Count();
+            score += l1.Where(p => highScorers.Contains(p.NodeName.ToUpper())).Count();
             score /= elem.ChildNodes.Count();
+
+            // score *= 47;
 
             // Add score for having elements with text content
             // over the paragraph threshold.
             // score += l1
             //         .Count();
 
-            // Add score for having elements with apparently meaningful words
-            // score += l1
+            // //Add score for having elements with apparently meaningful words
+            // score *= l1
             //         .Select(p =>
             //         {
-            //             var highScorers = new string[] { "P", "IMG", "SPAN" };
+
 
             //             var baseWordScore = Patterns.NormalizeWS.Replace(p.TextContent, " ")
             //                      .Split(' ')
@@ -161,16 +177,26 @@ namespace ReadaScrub
 
             //             if (highScorers.Contains(p.TagName.ToUpper()))
             //             {
-            //                 baseWordScore *= 2;
+            //                 baseWordScore *= 6;
             //             }
             //             else
             //             {
-            //                 baseWordScore /= 3;
+            //                 baseWordScore /= 6;
             //             }
 
             //             return baseWordScore;
             //         })
             //         .Sum();
+
+            // if (Patterns.PositiveCandidates.IsMatch(elem.TagName))
+            // {
+            //     score *= 1.5;
+            // }
+            // else
+            // {
+            //     score *= 0.8;
+            // }
+
 
             //     var links = l1
             //             .Where(p => p.Attributes

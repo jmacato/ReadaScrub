@@ -8,8 +8,8 @@ namespace ReadaScrub.Example
         static async Task Main(string[] args)
         {
             Console.WriteLine("Hello World!");
-             //var op = new ReadaScrub.Parser("https://www.iaea.org/topics/fusion");
-            ///var op = new ReadaScrub.Parser("http://www.iflscience.com/health-and-medicine/nonsurgical-procedure-returns-hand-function-to-paralyzed-people/");
+            //var op = new ReadaScrub.Parser("https://www.wired.com/story/photo-gallery-japan-seawalls/");
+            //var op = new ReadaScrub.Parser("http://www.iflscience.com/health-and-medicine/nonsurgical-procedure-returns-hand-function-to-paralyzed-people/");
             var op = new ReadaScrub.Parser(" https://news.abs-cbn.com/news/05/01/18/15-hectares-of-boracay-up-for-land-reform-dar");
 
 
