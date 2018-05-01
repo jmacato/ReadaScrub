@@ -14,11 +14,14 @@ namespace ReadaScrub
         public static Regex ExtraneousCandidates = new Regex("print|archive|comment|discuss|e[\\-]?mail|share|reply|all|login|sign|single|utility", _regexOptions);
         public static Regex ByLineCandidates = new Regex("byline|author|dateline|writtenby|p-author", _regexOptions);
         public static Regex ReplaceFonts = new Regex("<(\\/?)font[^>]*>", _regexOptions | RegexOptions.Multiline);
-        public static Regex Normalize = new Regex("\\s{2,}", _regexOptions | RegexOptions.Multiline);
+        public static Regex NormalizeWS = new Regex("\\s{2,}", _regexOptions | RegexOptions.Multiline);
         public static Regex Videos = new Regex("\\/\\/(www\\.)?(dailymotion|youtube|youtube-nocookie|player\\.vimeo)\\.com", _regexOptions);
         public static Regex NextLink = new Regex("(next|weiter|continue|>([^\\|]|$)|»([^\\|]|$))", _regexOptions);
         public static Regex PrevLink = new Regex("(prev|earl|old|new|<|«)", _regexOptions);
         public static Regex Whitespace = new Regex("^\\s*$", _regexOptions);
+
+
+
         public static Regex HasContent = new Regex("^\\S$*", _regexOptions);
 
         public static Regex TitleRegex1 = new Regex(@" [\|\-\\\/>»] ", _regexOptions);

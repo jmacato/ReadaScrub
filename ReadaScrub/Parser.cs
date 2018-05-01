@@ -46,22 +46,56 @@ namespace ReadaScrub
             var rootPage = await FetchPage();
             var asParser = new HtmlParser();
             var rootDoc = await asParser.ParseAsync(rootPage);
-            var bodyElem = rootDoc.Body;
-
-            GloballyRemoveElement(bodyElem, "script");
-            PruneUnlikelyElemments(bodyElem);
-
-            var candidates = ScanForCandidates(bodyElem).ToList();
-
-            var TopCandidate = candidates.MaxBy(p => p.score);
 
 
-            Debug.WriteLine(bodyElem.OuterHtml);
+
+            IElement TopCandidate = rootDoc.Body;
+
+
+            FirstStagePreprocess(TopCandidate);
+            PruneUnlikelyElemments(TopCandidate);
+
+            var candidates = ScanForCandidates(TopCandidate)
+                            .OrderByDescending(p => p.Score)
+                            .ToList();
+
+            TopCandidate = candidates
+            .Where(p => p.Element.TagName.ToUpper() != "BODY")
+            .MaxBy(p => p.Score).Element;
+
+
+
+            Debug.WriteLine(TopCandidate.OuterHtml);
+
+
 
             return null;
         }
 
-        private void PruneUnlikelyElemments(IHtmlElement targetElem)
+        private void FirstStagePreprocess(IElement bodyElem)
+        {
+            TransferChildAndRemove(bodyElem, "form");
+            TransferChildAndRemove(bodyElem, "script");
+        }
+
+        /// <summary>
+        /// Deletes the target element and transfers its children to 
+        /// its ancestor element
+        /// </summary> 
+        private void TransferChildAndRemove(IElement root, string targetElemName)
+        {
+            foreach (var elem in root.GetElementsByTagName(targetElemName))
+            {
+                foreach (var child in elem.ChildNodes.ToList())
+                {
+                    elem.Parent?.AppendChild(child);
+                }
+                elem.Parent?.RemoveChild(elem);
+
+            }
+        }
+
+        private void PruneUnlikelyElemments(IElement targetElem)
         {
             foreach (var elem in targetElem.GetElementsByTagName("*"))
             {
@@ -73,7 +107,7 @@ namespace ReadaScrub
             }
         }
 
-        private IEnumerable<(double score, IElement target)> ScanForCandidates(IElement targetElem)
+        private IEnumerable<(double Score, IElement Element)> ScanForCandidates(IElement targetElem)
         {
             foreach (var elem in targetElem.GetElementsByTagName("*"))
             {
@@ -98,8 +132,62 @@ namespace ReadaScrub
 
         private double ScoreElementForContent(IElement elem)
         {
+            var l1 = elem.GetElementsByTagName("*")
+                 .Where(p => IsOverPThreshold(p))
+                 .ToList();
+
+            if (elem.ChildNodes.Count() < 2) return 0;
+
             var score = 0d;
-            score += elem.ChildNodes.Where(p => p.NodeName.ToUpper() == "P").Count();
+
+            score += l1.Where(p => p.NodeName.ToUpper() == "P").Count();
+            score /= elem.ChildNodes.Count();
+
+            // Add score for having elements with text content
+            // over the paragraph threshold.
+            // score += l1
+            //         .Count();
+
+            // Add score for having elements with apparently meaningful words
+            // score += l1
+            //         .Select(p =>
+            //         {
+            //             var highScorers = new string[] { "P", "IMG", "SPAN" };
+
+            //             var baseWordScore = Patterns.NormalizeWS.Replace(p.TextContent, " ")
+            //                      .Split(' ')
+            //                      .Select(word => word.Length > 7)
+            //                      .Count();
+
+            //             if (highScorers.Contains(p.TagName.ToUpper()))
+            //             {
+            //                 baseWordScore *= 2;
+            //             }
+            //             else
+            //             {
+            //                 baseWordScore /= 3;
+            //             }
+
+            //             return baseWordScore;
+            //         })
+            //         .Sum();
+
+            //     var links = l1
+            //             .Where(p => p.Attributes
+            //                          .Select(x => x.Name.ToUpper()).Contains("HREF"));
+
+            //     var linkCount = links.Count();
+            //     var totalChildElems = l1.Count();
+            //     var linkDensity = 1 - (linkCount / totalChildElems);
+
+            //     score *= linkDensity;
+
+            //     if (Patterns.PositiveCandidates.IsMatch(elem.TagName) ||
+            //    Patterns.PositiveCandidates.IsMatch(String.Join(" ", elem.ClassList)))
+            //     {
+            //         score *= 1.5;
+            //     }
+
             return score;
         }
 
