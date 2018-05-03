@@ -22,7 +22,7 @@ namespace ReadaScrub
     {
         static HttpClient webClient = new HttpClient();
         private string UriString;
-         private string[] attribExceptions = new string[] { "SRC", "HREF" };
+        private string[] attribExceptions = new string[] { "SRC", "HREF" };
 
         private IHtmlDocument rootDoc;
 
@@ -69,7 +69,11 @@ namespace ReadaScrub
         public async Task<string> FetchPage()
         {
             // Force the encoding to UTF8
-            return System.Text.Encoding.UTF8.GetString(await webClient.GetByteArrayAsync(BaseURI.AbsoluteUri));
+            var bytes = await webClient.GetByteArrayAsync(BaseURI.AbsoluteUri);
+            var cD = new Mozilla.CharDet.UniversalDetector();
+            var res = cD.HandleData(bytes);
+            
+            return await webClient.GetStringAsync(BaseURI.AbsoluteUri);
         }
 
         public async Task<Article> DoParseAsync()
@@ -88,7 +92,7 @@ namespace ReadaScrub
                             .Where(p => p.Score > 0)
                             .Take(5)
                             .OrderBy(p => p.LinkDensity)
-                            .Take(5)
+                            .Take(2)
                             .OrderByDescending(p => p
                                                      .Element
                                                      .TextContent
@@ -104,9 +108,17 @@ namespace ReadaScrub
                 PostProcessCandidate(TopCandidate);
 
                 double reductionRate = 1d - ((double)TopCandidate.OuterHtml.Length / rootPage.Length);
-                Debug.WriteLine($"--\nReduction Percent: {TopCandidate.OuterHtml.Length}B / {rootPage.Length}B {reductionRate * 100:0.#####}%\n--\n");
+                Debug.WriteLine($"--\nReduction Percent: {TopCandidate.OuterHtml.Length / 1024:0.##}KB / {rootPage.Length / 1024:0.##}KB {reductionRate * 100:0.#####}%\n--\n");
+
+                //temp                 string finalContent = FormatToXhtml(TopCandidate);
+
+
 
                 string finalContent = FormatToXhtml(TopCandidate);
+                // var newRoot = asParser.Parse(finalContent);
+                // var fC = $@"<div class=""moz-reader-content"">{newRoot.DocumentElement.InnerHtml}</div>";
+                // newRoot = asParser.Parse(fC);
+                // finalContent = FormatToXhtml(newRoot.DocumentElement);
 
                 return new Article()
                 {

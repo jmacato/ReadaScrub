@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta content="text/html; charset=UTF-8" http-equiv="content-type" />
+  <meta name="viewport" content="width=device-width; user-scalable=0" />
+
+  <link rel="stylesheet" href="chrome://global/skin/aboutReader.css" type="text/css"/>
+
+  <script type="text/javascript" src="chrome://global/content/reader/aboutReader.js"></script>
+</head>
+<body>
+  <div class="container">
+ 
+
+    <hr>
+
+    <div class="content">
+      <div class="moz-reader-content">
+        $$$$$$$CONTENT#$%^&*
+      </div>
+    </div>
+ 
+  </div>
+  </body>
+  </html>

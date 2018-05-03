@@ -1,6 +1,4 @@
-﻿#define TEST
-
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.Threading.Tasks;
 
@@ -8,11 +6,15 @@ namespace ReadaScrub.Example
 {
     class Program
     {
+
+         
         static async Task Main(string[] args)
         {
-#if TEST
-            var url = "https://www.minvolai.com/uploads/decruft-samples/articspecies.html";
+#if DEBUG
+            var url = "https://www.gamespot.com/articles/avengers-infinity-war-directors-discuss-the-ending/1100-6458625/";
             var op = await new Engine(url).DoParseAsync();
+          //  var template = await System.IO.File.ReadAllTextAsync("template.html");
+          //  template = template.Replace("$CONTENT$", op.Content);
             await System.IO.File.WriteAllTextAsync("sample.html", op.Content);
 #else
             Console.Write("Enter full article URI to parse >> ");
