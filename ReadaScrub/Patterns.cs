@@ -12,12 +12,12 @@ namespace ReadaScrub
         {
             var res = input;
             res = res.Trim();
-            res = Regex.Replace(res, @"^[\s\n\t\r]+", "");
+            res = Regex.Replace(res, @"^\s+", "");
             //
             // The same as above, but with a $ on the end.
             // This requires that we match at the end.
             //
-            res = Regex.Replace(res, @"[\s\n\t\r]+$", "");
+            res = Regex.Replace(res, @"\s+$", "");
             res = NormalizeWS.Replace(res, " ");
             res = HttpUtility.HtmlDecode(res);
 
@@ -36,7 +36,8 @@ namespace ReadaScrub
         public static Regex Videos = new Regex("\\/\\/(www\\.)?(dailymotion|youtube|youtube-nocookie|player\\.vimeo)\\.com", _regexOptions);
         public static Regex NextLink = new Regex("(next|weiter|continue|>([^\\|]|$)|»([^\\|]|$))", _regexOptions);
         public static Regex PrevLink = new Regex("(prev|earl|old|new|<|«)", _regexOptions);
-        public static Regex Whitespace = new Regex("^\\s*$", _regexOptions);
+        public static Regex TotallyWhitespace = new Regex("^\\s*$", _regexOptions);
+        public static Regex Whitespace = new Regex("\\s+", _regexOptions);
 
         public static Regex HTMLComments = new Regex("<!--[\\s\\S]*?(?:-->)?<!---+>?|<!(?![dD][oO][cC][tT][yY][pP][eE]|\\[CDATA\\[)[^>]*>?|<[?][^>]*>?", _regexOptions);
 

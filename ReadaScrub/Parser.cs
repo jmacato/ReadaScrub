@@ -15,11 +15,10 @@ using AngleSharp.Dom;
 using AngleSharp.Dom.Html;
 using AngleSharp.Parser.Html;
 using MoreLinq;
-// using VaderSharp;
 
 namespace ReadaScrub
 {
-    public class Parser
+    public class Engine
     {
         static HttpClient webClient = new HttpClient();
         private string UriString;
@@ -31,7 +30,7 @@ namespace ReadaScrub
         public Uri BaseURI { get; private set; }
         public int ParagraphCharacterThreshold { get; set; } = 30;
 
-        public Parser(string UriString)
+        public Engine(string UriString)
         {
             this.UriString = UriString;
 
@@ -42,7 +41,7 @@ namespace ReadaScrub
 
 #if FAKE_BROWSER
             webClient.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "Mozilla (Chrome;Windows)");
-            webClient.DefaultRequestHeaders.TryAddWithoutValidation("Referrer", "https://www.google.com/");
+            webClient.DefaultRequestHeaders.TryAddWithoutValidation("Referrer", "https://amp.google.com/");
 #endif
 
         }
@@ -67,39 +66,32 @@ namespace ReadaScrub
 
             IElement TopCandidate = rootDoc.Body;
 
-            PruneUnlikelyElemments(TopCandidate);
-            PruneNegativeElemments(TopCandidate);
+             PruneUnlikelyElemments(TopCandidate);
             FirstStagePreprocess(TopCandidate);
 
             var candidates = ScanForCandidates(TopCandidate)
-                            .OrderByDescending(p => p.Score)
-                            .ToList();
+                            .Where(p => p.Score > 0)
+                            .Take(5)
+                            .ToList()
+                            .OrderByDescending(p => p.Score);
 
-            TopCandidate = candidates.MaxBy(p => p.Score).Element;
+            if (candidates.Count() > 0)
+                TopCandidate = candidates?.MinBy(p => p.LinkDensity).Element;
 
             if (TopCandidate != null)
             {
-                _TEMP_RemoveAttribs(TopCandidate);
-                _TEMP_TrimAndWSNormAllTextContent(TopCandidate);
-                _TEMP_TransformDanglingTextToPElem(TopCandidate);
-                _TEMP_ElemsWithAllTextOnlyToPTag(TopCandidate);
-                _TEMP_RemoveDanglingWhiteSpace(TopCandidate);
 
+                _TEMP_RemoveAttribs(TopCandidate);
+                _TEMP_TrimAndWSNormAllTextNodes(TopCandidate);
+                _TEMP_TransformDanglingTextToPElem(TopCandidate);
+                _TEMP_RemoveDanglingWhiteSpace(TopCandidate);
+                _TEMP_TrimAndWSNormAllPTags(TopCandidate);
+ 
                 double reductionRate = 1d - ((double)TopCandidate.OuterHtml.Length / rootPage.Length);
                 reductionRate *= 100;
 
                 Debug.WriteLine($"--\nReduction Percent: {TopCandidate.OuterHtml.Length}B / {rootPage.Length}B {reductionRate:0.#####}%\n--\n");
 
-                // var analyzer = new SentimentIntensityAnalyzer();
-
-                // var results = analyzer.PolarityScores(Patterns.RegexTrimNormDecode(TopCandidate.TextContent));
-
-                // Debug.WriteLine("-- Sentiment Analysis --");
-                // Debug.WriteLine("Positive score: " + results.Positive);
-                // Debug.WriteLine("Negative score: " + results.Negative);
-                // Debug.WriteLine("Neutral score: " + results.Neutral);
-                // Debug.WriteLine("Compound score: " + results.Compound);
-                // Debug.WriteLine("--");
 
                 string finalContent;
 
@@ -144,36 +136,38 @@ namespace ReadaScrub
         /// <summary>
         /// Remove all purely whitespace nodes.
         /// </summary>
-        private void _TEMP_RemoveDanglingWhiteSpace(INode target)
+        private void _TEMP_RemoveDanglingWhiteSpace(IElement target)
         {
-            foreach (var trgt in target.ChildNodes.ToList())
-                if (trgt.NodeType == NodeType.Text && Patterns.Whitespace.IsMatch(trgt.TextContent))
+            foreach (var trgt in target.GetElementsByTagName("*"))
+                if (trgt.NodeType == NodeType.Text && Patterns.TotallyWhitespace.IsMatch(trgt.TextContent))
                 {
                     trgt.Parent?.RemoveChild(trgt);
-                    _TEMP_RemoveDanglingWhiteSpace(trgt);
                 }
         }
 
         /// <summary>
         /// Replace all elements with all childnodes text to P Tag.
         /// </summary>
-        private void _TEMP_ElemsWithAllTextOnlyToPTag(IElement target)
+        private void _TEMP_RemoveEmptyNodes(IElement target)
         {
-            foreach (var trgt in target.GetElementsByTagName("*")
-                                       .Where(p => !exceptElems_PTag.Any(x => x == p.TagName.ToUpper()))
-                                       .ToList())
-                if (trgt.Children.All(p => p.NodeType == NodeType.Text))
-                {
-                    var targetText = Patterns.RegexTrimNormDecode(trgt.TextContent);
+            foreach (var trgt in target.GetElementsByTagName("*"))
+                if (trgt.ChildNodes.Count() == 0)
+                    trgt.Parent?.RemoveChild(trgt);
 
-                    if (targetText.Length > 0)
-                    {
-                        var newElem = rootDoc.CreateElement("p");
-                        newElem.TextContent = targetText;
-                        trgt.Parent?.ReplaceChild(newElem, trgt);
-                    }
-                }
         }
+
+
+
+        private void _TEMP_TrimAndWSNormAllPTags(IElement target)
+        {
+            foreach (var trgt in target.GetElementsByTagName("*"))
+                if (trgt.ChildNodes.All(p => p.NodeType == NodeType.Text))
+                    foreach (var trgtCh in trgt.ChildNodes)
+                        trgtCh.TextContent = trgtCh.TextContent.RegexTrimNormDecode();
+
+        }
+
+
 
 
         private void _TEMP_TransformDanglingTextToPElem(IElement target)
@@ -192,12 +186,13 @@ namespace ReadaScrub
         /// Trim and normalize whitespace on all text nodes.
         /// </summary>
         /// <param name="target"></param>
-        private void _TEMP_TrimAndWSNormAllTextContent(IElement target)
+        private void _TEMP_TrimAndWSNormAllTextNodes(IElement target)
         {
             foreach (var child in target.Children.Where(p => p.NodeType == NodeType.Text))
             {
-                child.TextContent = Patterns.RegexTrimNormDecode(child.TextContent);
-                _TEMP_TrimAndWSNormAllTextContent(child);
+                
+                child.OuterHtml = Patterns.RegexTrimNormDecode(child.OuterHtml);
+                _TEMP_TrimAndWSNormAllTextNodes(child);
             }
         }
 
@@ -260,7 +255,6 @@ namespace ReadaScrub
                 }
             }
         }
-
         private void PruneUnlikelyElemments(IElement targetElem)
         {
             foreach (var elem in targetElem.GetElementsByTagName("*"))
@@ -273,18 +267,17 @@ namespace ReadaScrub
             }
         }
 
-        private IEnumerable<(double Score, IElement Element)> ScanForCandidates(IElement targetElem)
+        private IEnumerable<(double Score, double LinkDensity, IElement Element)> ScanForCandidates(IElement targetElem)
         {
             foreach (var elem in targetElem.GetElementsByTagName("*")
-                                           .Where(p => p.TagName.ToUpper() != "BODY"))
+                                           .Where(p => p.TagName.ToUpper() != "BODY")
+                                           .Where(p => IsOverPThreshold(p)))
             {
-                var paragraphQuery = elem.ChildNodes
-                                         .Where(p => IsOverPThreshold(p));
-
-                if (paragraphQuery.Any() && paragraphQuery.Count() > 1)
+                if (elem.ChildNodes.Count() > 3)
                 {
-                    var score = ScoreElementForContent(elem);
-                    yield return ((score, elem));
+                    var score = ScoreRelevantElementsProportion(elem);
+                    var linkDens = ScoreElementForLinkDensity(elem);
+                    yield return ((score, linkDens, elem));
                 }
             }
         }
@@ -295,30 +288,50 @@ namespace ReadaScrub
         private bool IsPositiveOrMaybeCandidate(INode p)
         => (Patterns.MaybeCandidates.IsMatch(p.NodeName) ||
             Patterns.PositiveCandidates.IsMatch(p.NodeName));
-
-        private double ScoreElementForContent(IElement elem)
+        static readonly string[] highScorers = new string[] { "P", "BLOCKQUOTE", "CODE" };
+        static readonly string[] negativeScorers = new string[] { "A", "IFRAME" };
+        static readonly char[] wordSeparators = new char[] { ' ', ',', ';', '.', '!', '"', '(', ')', '?' };
+        static readonly StringSplitOptions _sso = StringSplitOptions.RemoveEmptyEntries;
+        private double ScoreRelevantElementsProportion(IElement elem)
         {
-            var highScorers = new string[] { "P", "SPAN" };
-
-            var l1 = elem.ChildNodes
-                 .Where(p => IsOverPThreshold(p))
-                 .ToList();
-
-            if (elem.ChildNodes.Count() < 2) return 0;
 
             var score = 0d;
 
-            score += l1.Where(p => highScorers.Contains(p.NodeName.ToUpper())).Count();
-
+            // Score the proportions of positively relevant elements.
+            score += elem.ChildNodes.Where(p => highScorers.Contains(p.NodeName.ToUpper())).Count();
             score /= elem.ChildNodes.Count();
 
-            score *= Patterns.NormalizeWS.Replace(elem.TextContent.Trim(), " ").Split(' ').Where(p => p.Length > 5).Count();
+            var totalWordCount = elem.TextContent.Trim().Split(wordSeparators, _sso).Count();
 
 
+            Debug.WriteLine($"RE: Word Count : {totalWordCount}");
+
+            // Add word count score in proportion to the high scoring element percentage.
+            score *= totalWordCount;
 
             return score;
         }
 
+        private double ScoreElementForLinkDensity(IElement elem)
+        {
+            var score = 0d;
+            var totalWordCount = elem.TextContent.Trim().Split(wordSeparators, _sso).Count();
+
+            var totalWordCountLinks = elem.GetElementsByTagName("*")
+                                          .Where(p => p.TagName.ToUpper() == "A")
+                                          .Select(p => p.TextContent.Trim().Split(wordSeparators, _sso).Count())
+                                          .Sum();
+
+
+            var linkDensity = ((float)totalWordCountLinks / (totalWordCount + 1));
+
+            Debug.WriteLine($"Link Density : {linkDensity * 100:0.##}%");
+
+            score *= linkDensity;
+
+
+            return score;
+        }
         private void GloballyRemoveElement(IElement targetElem, string v)
         {
             foreach (var elem in targetElem.GetElementsByTagName(v))
