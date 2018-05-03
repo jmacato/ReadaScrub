@@ -22,13 +22,28 @@ namespace ReadaScrub
     {
         static HttpClient webClient = new HttpClient();
         private string UriString;
-        private string[] exceptElems_PTag = new string[] { "P", "A", "IMG", "H1", "H2", "H3", "H4", "H5", "BLOCKQUOTE", "CODE" };
-        private string[] attribExceptions = new string[] { "SRC", "HREF" };
+         private string[] attribExceptions = new string[] { "SRC", "HREF" };
 
         private IHtmlDocument rootDoc;
 
         public Uri BaseURI { get; private set; }
         public int ParagraphCharacterThreshold { get; set; } = 30;
+
+        private bool IsOverPThreshold(IElement p)
+        => p.TextContent.Trim().Length > this.ParagraphCharacterThreshold;
+
+        private bool IsPositiveOrMaybeCandidate(IElement p)
+        => (Patterns.MaybeCandidates.IsMatch(p.NodeName) ||
+            Patterns.PositiveCandidates.IsMatch(p.NodeName));
+
+        private bool IsEmptyElement(IElement p) => p.Attributes.Count() == 0 &&
+                    p.Children.Count() == 0 &&
+                    p.InnerHtml.RegexTrimNormDecode().Length == 0;
+
+        static readonly string[] highScorers = new string[] { "P", "A", "IMG", "H1", "H2", "H3", "H4", "H5", "BLOCKQUOTE", "CODE" };
+        static readonly char[] wordSeparators = new char[] { ' ', ',', ';', '.', '!', '"', '(', ')', '?' };
+        static readonly StringSplitOptions _sso = StringSplitOptions.RemoveEmptyEntries;
+
 
         public Engine(string UriString)
         {
@@ -53,56 +68,45 @@ namespace ReadaScrub
 
         public async Task<string> FetchPage()
         {
+            // Force the encoding to UTF8
             return System.Text.Encoding.UTF8.GetString(await webClient.GetByteArrayAsync(BaseURI.AbsoluteUri));
         }
 
         public async Task<Article> DoParseAsync()
         {
             var rootPage = await FetchPage();
-
             var asParser = new HtmlParser();
-
             this.rootDoc = await asParser.ParseAsync(rootPage);
 
             IElement TopCandidate = rootDoc.Body;
 
-             PruneUnlikelyElemments(TopCandidate);
+            PruneUnlikelyElemments(TopCandidate);
             FirstStagePreprocess(TopCandidate);
 
             var candidates = ScanForCandidates(TopCandidate)
+                            .OrderByDescending(p => p.Score)
                             .Where(p => p.Score > 0)
                             .Take(5)
-                            .ToList()
-                            .OrderByDescending(p => p.Score);
-
+                            .OrderBy(p => p.LinkDensity)
+                            .Take(5)
+                            .OrderByDescending(p => p
+                                                     .Element
+                                                     .TextContent
+                                                     .RegexTrimNormDecode()
+                                                     .Split(wordSeparators, _sso)
+                                                     .Where(x => x.Length > 4)
+                                                     .Count());
             if (candidates.Count() > 0)
-                TopCandidate = candidates?.MinBy(p => p.LinkDensity).Element;
+                TopCandidate = candidates?.FirstOrDefault().Element;
 
             if (TopCandidate != null)
             {
+                PostProcessCandidate(TopCandidate);
 
-                _TEMP_RemoveAttribs(TopCandidate);
-                _TEMP_TrimAndWSNormAllTextNodes(TopCandidate);
-                _TEMP_TransformDanglingTextToPElem(TopCandidate);
-                _TEMP_RemoveDanglingWhiteSpace(TopCandidate);
-                _TEMP_TrimAndWSNormAllPTags(TopCandidate);
- 
                 double reductionRate = 1d - ((double)TopCandidate.OuterHtml.Length / rootPage.Length);
-                reductionRate *= 100;
+                Debug.WriteLine($"--\nReduction Percent: {TopCandidate.OuterHtml.Length}B / {rootPage.Length}B {reductionRate * 100:0.#####}%\n--\n");
 
-                Debug.WriteLine($"--\nReduction Percent: {TopCandidate.OuterHtml.Length}B / {rootPage.Length}B {reductionRate:0.#####}%\n--\n");
-
-
-                string finalContent;
-
-                var sb = new StringBuilder();
-                using (var txtWriter = new StringWriter(sb))
-                {
-                    TopCandidate.ToHtml(txtWriter, new AngleSharp.XHtml.XhtmlMarkupFormatter());
-                    finalContent = sb.ToString();
-                    finalContent = Patterns.HTMLComments.Replace(finalContent, "");
-                    finalContent = FormatHtmlToXhtml(finalContent);
-                }
+                string finalContent = FormatToXhtml(TopCandidate);
 
                 return new Article()
                 {
@@ -117,6 +121,29 @@ namespace ReadaScrub
                 Success = false
             };
 
+        }
+
+        private void PostProcessCandidate(IElement TopCandidate)
+        {
+            PostProcessRemoveAttribs(TopCandidate);
+            PostProcessTrimAndWSNormAllTextNodes(TopCandidate);
+            PostProcessTransformDanglingTextToPElem(TopCandidate);
+            PostProcessRemoveDanglingWhiteSpace(TopCandidate);
+            PostProcessTrimAndWSNormAllPTags(TopCandidate);
+            PostProcessRemoveEmptyNodes(TopCandidate);
+
+        }
+
+        private string FormatToXhtml(IElement topCandidate)
+        {
+            var sb = new StringBuilder();
+            using (var txtWriter = new StringWriter(sb))
+            {
+                topCandidate.ToHtml(txtWriter, new AngleSharp.XHtml.XhtmlMarkupFormatter());
+                var finalContent = sb.ToString();
+                finalContent = Patterns.HTMLComments.Replace(finalContent, "");
+                return FormatHtmlToXhtml(finalContent);
+            }
         }
 
         string FormatHtmlToXhtml(string input)
@@ -136,41 +163,58 @@ namespace ReadaScrub
         /// <summary>
         /// Remove all purely whitespace nodes.
         /// </summary>
-        private void _TEMP_RemoveDanglingWhiteSpace(IElement target)
+        private void PostProcessRemoveDanglingWhiteSpace(IElement target)
         {
-            foreach (var trgt in target.GetElementsByTagName("*"))
-                if (trgt.NodeType == NodeType.Text && Patterns.TotallyWhitespace.IsMatch(trgt.TextContent))
-                {
-                    trgt.Parent?.RemoveChild(trgt);
-                }
+            BreadthFirstDo(target, (child) =>
+            {
+                if (child.NodeType == NodeType.Text && Patterns.TotallyWhitespace.IsMatch(child.OuterHtml))
+                    child.Parent?.RemoveChild(child);
+            });
+        }
+
+        private void BreadthFirstDo(IElement target, Action<IElement> predicate)
+        {
+            predicate(target);
+            foreach (var kid in target.Children)
+            {
+                predicate(kid);
+                foreach (var grandkid in kid.Children)
+                    BreadthFirstDo(grandkid, predicate);
+            }
         }
 
         /// <summary>
-        /// Replace all elements with all childnodes text to P Tag.
+        /// Replace all elements without children
         /// </summary>
-        private void _TEMP_RemoveEmptyNodes(IElement target)
+        private void PostProcessRemoveEmptyNodes(IElement target)
         {
-            foreach (var trgt in target.GetElementsByTagName("*"))
-                if (trgt.ChildNodes.Count() == 0)
-                    trgt.Parent?.RemoveChild(trgt);
-
+            do
+            {
+                BreadthFirstDo(target, (child) =>
+                {
+                    if (IsEmptyElement(child))
+                        child.Parent?.RemoveChild(child);
+                });
+            }
+            while (target.GetElementsByTagName("*").Any(p => IsEmptyElement(p)));
         }
 
 
 
-        private void _TEMP_TrimAndWSNormAllPTags(IElement target)
+        /// <summary>
+        /// Normalize Text inside P tags.
+        /// </summary>
+        /// <param name="target"></param>
+        private void PostProcessTrimAndWSNormAllPTags(IElement target)
         {
             foreach (var trgt in target.GetElementsByTagName("*"))
-                if (trgt.ChildNodes.All(p => p.NodeType == NodeType.Text))
-                    foreach (var trgtCh in trgt.ChildNodes)
+                if (trgt.Children.All(p => p.NodeType == NodeType.Text))
+                    foreach (var trgtCh in trgt.Children)
                         trgtCh.TextContent = trgtCh.TextContent.RegexTrimNormDecode();
 
         }
 
-
-
-
-        private void _TEMP_TransformDanglingTextToPElem(IElement target)
+        private void PostProcessTransformDanglingTextToPElem(IElement target)
         {
             foreach (var child in target.Children.Where(p => p.NodeType == NodeType.Text).ToList())
             {
@@ -178,7 +222,7 @@ namespace ReadaScrub
                 newElem.TextContent = Patterns.RegexTrimNormDecode(child.TextContent);
 
                 child.Parent?.ReplaceChild(newElem, child);
-                _TEMP_TransformDanglingTextToPElem(child);
+                PostProcessTransformDanglingTextToPElem(child);
             }
         }
 
@@ -186,49 +230,47 @@ namespace ReadaScrub
         /// Trim and normalize whitespace on all text nodes.
         /// </summary>
         /// <param name="target"></param>
-        private void _TEMP_TrimAndWSNormAllTextNodes(IElement target)
+        private void PostProcessTrimAndWSNormAllTextNodes(IElement target)
         {
-            foreach (var child in target.Children.Where(p => p.NodeType == NodeType.Text))
+            BreadthFirstDo(target, (child) =>
             {
-                
-                child.OuterHtml = Patterns.RegexTrimNormDecode(child.OuterHtml);
-                _TEMP_TrimAndWSNormAllTextNodes(child);
-            }
+                if (child.NodeType == NodeType.Text)
+                {
+                    child.OuterHtml = Patterns.RegexTrimNormDecode(child.OuterHtml);
+                }
+            });
         }
 
-        private void _TEMP_RemoveAttribs(IElement target)
+        private void PostProcessRemoveAttribs(IElement target)
         {
-            foreach (var attr in target.Attributes.ToList())
+            BreadthFirstDo(target, (child) =>
             {
-                if (!attribExceptions.Any(p => p.ToUpper() == attr.Name.ToUpper()))
-                    target.Attributes.RemoveNamedItem(attr.Name);
-            }
-            foreach (var child in target.Children)
-            {
-                _TEMP_RemoveAttribs(child);
-            }
+                foreach (var attr in child.Attributes.ToList())
+                    if (!attribExceptions.Any(p => p.ToUpper() == attr.Name.ToUpper()))
+                        child.Attributes.RemoveNamedItem(attr.Name);
+            });
         }
 
         private void FirstStagePreprocess(IElement target)
         {
-            TransferChildAndRemove(target, "form");
-            TransferChildAndRemove(target, "script", true);
-            TransferChildAndRemove(target, "noscript", true);
+            TransferChildrenToAncestorAndRemove(target, "form");
+            TransferChildrenToAncestorAndRemove(target, "script", true);
+            TransferChildrenToAncestorAndRemove(target, "noscript", true);
+            TransferChildrenToAncestorAndRemove(target, "style", true);
+            TransferChildrenToAncestorAndRemove(target, "link", true);
         }
 
         /// <summary>
         /// Deletes the target element and transfers its children to 
         /// its ancestor element
         /// </summary> 
-        private void TransferChildAndRemove(IElement root, string targetElemName, bool RemoveChildTextElems = false)
+        private void TransferChildrenToAncestorAndRemove(IElement root, string targetElemName, bool RemoveChildTextElems = false)
         {
-
             foreach (var elem in root.GetElementsByTagName(targetElemName))
             {
-
-                if (elem.ChildNodes.Any(p => p.NodeType != NodeType.Text))
+                if (elem.Children.Any(p => p.NodeType != NodeType.Text))
                 {
-                    foreach (var child in elem.ChildNodes.ToList())
+                    foreach (var child in elem.Children.ToList())
                     {
                         if (RemoveChildTextElems)
                         {
@@ -243,18 +285,7 @@ namespace ReadaScrub
 
             }
         }
-        private void PruneNegativeElemments(IElement targetElem)
-        {
-            foreach (var elem in targetElem.GetElementsByTagName("*"))
-            {
-                if (Patterns.NegativeCandidates.IsMatch(elem.TagName) ||
-                    Patterns.NegativeCandidates.IsMatch(elem.Id ?? " ") ||
-                    Patterns.NegativeCandidates.IsMatch(elem.ClassList.ToDelimitedString(" ") ?? " "))
-                {
-                    elem.Parent?.RemoveChild(elem);
-                }
-            }
-        }
+
         private void PruneUnlikelyElemments(IElement targetElem)
         {
             foreach (var elem in targetElem.GetElementsByTagName("*"))
@@ -273,7 +304,7 @@ namespace ReadaScrub
                                            .Where(p => p.TagName.ToUpper() != "BODY")
                                            .Where(p => IsOverPThreshold(p)))
             {
-                if (elem.ChildNodes.Count() > 3)
+                if (elem.Children.Count() > 3)
                 {
                     var score = ScoreRelevantElementsProportion(elem);
                     var linkDens = ScoreElementForLinkDensity(elem);
@@ -281,25 +312,14 @@ namespace ReadaScrub
                 }
             }
         }
-
-        private bool IsOverPThreshold(INode p)
-        => p.TextContent.Trim().Length > this.ParagraphCharacterThreshold;
-
-        private bool IsPositiveOrMaybeCandidate(INode p)
-        => (Patterns.MaybeCandidates.IsMatch(p.NodeName) ||
-            Patterns.PositiveCandidates.IsMatch(p.NodeName));
-        static readonly string[] highScorers = new string[] { "P", "BLOCKQUOTE", "CODE" };
-        static readonly string[] negativeScorers = new string[] { "A", "IFRAME" };
-        static readonly char[] wordSeparators = new char[] { ' ', ',', ';', '.', '!', '"', '(', ')', '?' };
-        static readonly StringSplitOptions _sso = StringSplitOptions.RemoveEmptyEntries;
         private double ScoreRelevantElementsProportion(IElement elem)
         {
 
             var score = 0d;
 
             // Score the proportions of positively relevant elements.
-            score += elem.ChildNodes.Where(p => highScorers.Contains(p.NodeName.ToUpper())).Count();
-            score /= elem.ChildNodes.Count();
+            score += elem.Children.Where(p => highScorers.Contains(p.NodeName.ToUpper())).Count();
+            score /= elem.Children.Count();
 
             var totalWordCount = elem.TextContent.Trim().Split(wordSeparators, _sso).Count();
 
@@ -314,7 +334,7 @@ namespace ReadaScrub
 
         private double ScoreElementForLinkDensity(IElement elem)
         {
-            var score = 0d;
+
             var totalWordCount = elem.TextContent.Trim().Split(wordSeparators, _sso).Count();
 
             var totalWordCountLinks = elem.GetElementsByTagName("*")
@@ -327,19 +347,15 @@ namespace ReadaScrub
 
             Debug.WriteLine($"Link Density : {linkDensity * 100:0.##}%");
 
-            score *= linkDensity;
+            return linkDensity;
 
-
-            return score;
         }
+
         private void GloballyRemoveElement(IElement targetElem, string v)
         {
             foreach (var elem in targetElem.GetElementsByTagName(v))
                 elem.Parent?.RemoveChild(elem);
         }
+
     }
-
 }
-
-
-
