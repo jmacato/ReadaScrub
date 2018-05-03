@@ -96,24 +96,17 @@ namespace ReadaScrub
 
             if (candidates.Count() > 0)
             {
-
-
-                var firstStageAvg = candidates.Average(p => p.Score);
-
                 candidates = candidates
-                                .Where(p => p.Score > firstStageAvg)
+                                .OrderByDescending(p => p.Score)
+                                .Take(10)
                                 .OrderByDescending(p => p
                                                          .Element
                                                          .TextContent
                                                          .RegexTrimNormDecode()
                                                          .Split(wordSeparators, _sso)
                                                          .Where(x => x.Length > 4)
-                                                         .Count());
-
-                var secondStageAvg = candidates.Average(p => p.LinkDensity);
-
-                candidates = candidates
-                                .Where(p => p.LinkDensity < secondStageAvg)
+                                                         .Count())
+                                .Take(2)
                                 .OrderBy(p => p.LinkDensity);
 
             }
@@ -126,17 +119,8 @@ namespace ReadaScrub
 
                 double reductionRate = 1d - ((double)TopCandidate.OuterHtml.Length / rootPage.Length);
                 Debug.WriteLine($"--\nReduction Percent: {TopCandidate.OuterHtml.Length / 1024:0.##}KB / {rootPage.Length / 1024:0.##}KB {reductionRate * 100:0.#####}%\n--\n");
-
-                //temp                 string finalContent = FormatToXhtml(TopCandidate);
-
-
-
-                string finalContent = FormatToXhtml(TopCandidate);
-                // var newRoot = asParser.Parse(finalContent);
-                // var fC = $@"<div class=""moz-reader-content"">{newRoot.DocumentElement.InnerHtml}</div>";
-                // newRoot = asParser.Parse(fC);
-                // finalContent = FormatToXhtml(newRoot.DocumentElement);
-
+ 
+                string finalContent = FormatToXhtml(TopCandidate); 
                 return new Article()
                 {
                     Uri = BaseURI,
@@ -219,11 +203,10 @@ namespace ReadaScrub
         {
             do
             {
-                BreadthFirstDo(target, (child) =>
-                {
+                foreach (var child in target.GetElementsByTagName("*"))
                     if (IsEmptyElement(child))
                         child.Parent?.RemoveChild(child);
-                });
+
             }
             while (target.GetElementsByTagName("*").Any(p => IsEmptyElement(p)));
         }
@@ -285,8 +268,7 @@ namespace ReadaScrub
             TransferChildrenToAncestorAndRemove(target, "form");
             TransferChildrenToAncestorAndRemove(target, "script", true);
             TransferChildrenToAncestorAndRemove(target, "noscript", true);
-            TransferChildrenToAncestorAndRemove(target, "style", true);
-            TransferChildrenToAncestorAndRemove(target, "link", true);
+ 
         }
 
         /// <summary>

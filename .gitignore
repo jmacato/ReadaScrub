@@ -9,6 +9,8 @@
 *.userosscache
 *.sln.docstates
 
+ReadaScrub.Example/output/
+
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs
 

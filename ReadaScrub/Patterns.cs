@@ -25,7 +25,7 @@ namespace ReadaScrub
         }
 
         public static RegexOptions _regexOptions = RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.ECMAScript | RegexOptions.IgnoreCase;
-        public static Regex UnlikelyCandidates = new Regex("banner|breadcrumbs|combx|comment|community|cover-wrap|disqus|extra|foot|header|legends|menu|related|remark|replies|rss|shoutbox|sidebar|skyscraper|social|sponsor|supplemental|ad-break|agegate|pagination|pager|popup|yom-remote", _regexOptions);
+        public static Regex UnlikelyCandidates = new Regex("style|sidebar|aside|banner|breadcrumbs|combx|comment|community|cover-wrap|disqus|extra|foot|header|legends|menu|related|remark|replies|rss|shoutbox|sidebar|skyscraper|social|sponsor|supplemental|ad-break|agegate|pagination|pager|popup|yom-remote", _regexOptions);
         public static Regex MaybeCandidates = new Regex("and|article|body|column|main|shadow|section", _regexOptions);
         public static Regex PositiveCandidates = new Regex("article|body|content|entry|hentry|h-entry|main|page|pagination|post|text|blog|story", _regexOptions);
         public static Regex NegativeCandidates = new Regex("hidden|^hid$| hid$| hid |^hid |banner|combx|comment|com-|contact|foot|footer|footnote|masthead|media|meta|outbrain|promo|related|scroll|share|shoutbox|sidebar|skyscraper|sponsor|shopping|tags|tool|widget", _regexOptions);
