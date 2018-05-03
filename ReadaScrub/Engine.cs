@@ -1,4 +1,24 @@
-﻿#define FAKE_BROWSER
+﻿/*
+
+    ReadaScrub - Library for scrubbing relevant HTML content clean =) 
+    Copyright (C) 2018  Jumar A. Macato.
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU Affero General Public License as
+    published by the Free Software Foundation, either version 3 of the
+    License, or (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU Affero General Public License for more details.
+
+    You should have received a copy of the GNU Affero General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+ */
+
+#define FAKE_BROWSER
 
 using System;
 using System.Collections.Generic;
@@ -18,32 +38,25 @@ using MoreLinq;
 
 namespace ReadaScrub
 {
-    public class Engine
+    public partial class Engine
     {
         static HttpClient webClient = new HttpClient();
         private string UriString;
         private string[] attribExceptions = new string[] { "SRC", "HREF" };
-
         private IHtmlDocument rootDoc;
-
         public Uri BaseURI { get; private set; }
         public int ParagraphCharacterThreshold { get; set; } = 30;
-
         private bool IsOverPThreshold(IElement p)
         => p.TextContent.Trim().Length > this.ParagraphCharacterThreshold;
-
         private bool IsPositiveOrMaybeCandidate(IElement p)
-        => (Patterns.MaybeCandidates.IsMatch(p.NodeName) ||
-            Patterns.PositiveCandidates.IsMatch(p.NodeName));
-
+        => (MaybeCandidates.IsMatch(p.NodeName) ||
+            PositiveCandidates.IsMatch(p.NodeName));
         private bool IsEmptyElement(IElement p) => p.Attributes.Count() == 0 &&
                     p.Children.Count() == 0 &&
-                    p.InnerHtml.RegexTrimNormDecode().Length == 0;
-
+                    p.InnerHtml.RegexTrimAndNormalize().Length == 0;
         static readonly string[] highScorers = new string[] { "P", "A", "IMG", "H1", "H2", "H3", "H4", "H5", "BLOCKQUOTE", "CODE" };
         static readonly char[] wordSeparators = new char[] { ' ', ',', ';', '.', '!', '"', '(', ')', '?' };
         static readonly StringSplitOptions _sso = StringSplitOptions.RemoveEmptyEntries;
-
 
         public Engine(string UriString)
         {
@@ -102,7 +115,7 @@ namespace ReadaScrub
                                 .OrderByDescending(p => p
                                                          .Element
                                                          .TextContent
-                                                         .RegexTrimNormDecode()
+                                                         .RegexTrimAndNormalize()
                                                          .Split(wordSeparators, _sso)
                                                          .Where(x => x.Length > 4)
                                                          .Count())
@@ -154,7 +167,7 @@ namespace ReadaScrub
             {
                 topCandidate.ToHtml(txtWriter, new AngleSharp.XHtml.XhtmlMarkupFormatter());
                 var finalContent = sb.ToString();
-                finalContent = Patterns.HTMLComments.Replace(finalContent, "");
+                finalContent = HTMLComments.Replace(finalContent, "");
                 return FormatHtmlToXhtml(finalContent);
             }
         }
@@ -180,7 +193,7 @@ namespace ReadaScrub
         {
             BreadthFirstDo(target, (child) =>
             {
-                if (child.NodeType == NodeType.Text && Patterns.TotallyWhitespace.IsMatch(child.OuterHtml))
+                if (child.NodeType == NodeType.Text && TotallyWhitespace.IsMatch(child.OuterHtml))
                     child.Parent?.RemoveChild(child);
             });
         }
@@ -222,7 +235,7 @@ namespace ReadaScrub
             foreach (var trgt in target.GetElementsByTagName("*"))
                 if (trgt.Children.All(p => p.NodeType == NodeType.Text))
                     foreach (var trgtCh in trgt.Children)
-                        trgtCh.TextContent = trgtCh.TextContent.RegexTrimNormDecode();
+                        trgtCh.TextContent = trgtCh.TextContent.RegexTrimAndNormalize();
 
         }
 
@@ -231,7 +244,7 @@ namespace ReadaScrub
             foreach (var child in target.Children.Where(p => p.NodeType == NodeType.Text).ToList())
             {
                 var newElem = rootDoc.CreateElement("p");
-                newElem.TextContent = Patterns.RegexTrimNormDecode(child.TextContent);
+                newElem.TextContent = child.TextContent.RegexTrimAndNormalize();
 
                 child.Parent?.ReplaceChild(newElem, child);
                 PostProcessTransformDanglingTextToPElem(child);
@@ -248,7 +261,7 @@ namespace ReadaScrub
             {
                 if (child.NodeType == NodeType.Text)
                 {
-                    child.OuterHtml = Patterns.RegexTrimNormDecode(child.OuterHtml);
+                    child.OuterHtml = child.OuterHtml.RegexTrimAndNormalize();
                 }
             });
         }
@@ -268,8 +281,7 @@ namespace ReadaScrub
             TransferChildrenToAncestorAndRemove(target, "form");
             TransferChildrenToAncestorAndRemove(target, "script", true);
             TransferChildrenToAncestorAndRemove(target, "noscript", true);
- 
-        }
+         }
 
         /// <summary>
         /// Deletes the target element and transfers its children to 
@@ -301,8 +313,8 @@ namespace ReadaScrub
         {
             foreach (var elem in targetElem.GetElementsByTagName("*"))
             {
-                if (Patterns.UnlikelyCandidates.IsMatch(elem.TagName)
-                    && !Patterns.MaybeCandidates.IsMatch(elem.TagName))
+                if (UnlikelyCandidates.IsMatch(elem.TagName)
+                    && !MaybeCandidates.IsMatch(elem.TagName))
                 {
                     elem.Parent?.RemoveChild(elem);
                 }
@@ -361,7 +373,6 @@ namespace ReadaScrub
             return linkDensity;
 
         }
-
         private void GloballyRemoveElement(IElement targetElem, string v)
         {
             foreach (var elem in targetElem.GetElementsByTagName(v))
