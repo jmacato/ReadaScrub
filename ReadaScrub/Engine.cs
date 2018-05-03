@@ -68,12 +68,17 @@ namespace ReadaScrub
 
         public async Task<string> FetchPage()
         {
-            // Force the encoding to UTF8
-            var bytes = await webClient.GetByteArrayAsync(BaseURI.AbsoluteUri);
-            var cD = new Mozilla.CharDet.UniversalDetector();
-            var res = cD.HandleData(bytes);
-            
-            return await webClient.GetStringAsync(BaseURI.AbsoluteUri);
+            // Force the encoding to UTF8 
+            try
+            {
+                return await webClient.GetStringAsync(BaseURI.AbsoluteUri);
+
+            }
+            catch (Exception)
+            {
+                return Encoding.UTF8.GetString(await webClient.GetByteArrayAsync(BaseURI.AbsoluteUri));
+
+            }
         }
 
         public async Task<Article> DoParseAsync()
@@ -82,24 +87,36 @@ namespace ReadaScrub
             var asParser = new HtmlParser();
             this.rootDoc = await asParser.ParseAsync(rootPage);
 
-            IElement TopCandidate = rootDoc.Body;
+            IElement TopCandidate = null, FirstCandidate = rootDoc.Body;
 
-            PruneUnlikelyElemments(TopCandidate);
-            FirstStagePreprocess(TopCandidate);
+            PruneUnlikelyElemments(FirstCandidate);
+            FirstStagePreprocess(FirstCandidate);
 
-            var candidates = ScanForCandidates(TopCandidate)
-                            .OrderByDescending(p => p.Score)
-                            .Where(p => p.Score > 0)
-                            .Take(5)
-                            .OrderBy(p => p.LinkDensity)
-                            .Take(2)
-                            .OrderByDescending(p => p
-                                                     .Element
-                                                     .TextContent
-                                                     .RegexTrimNormDecode()
-                                                     .Split(wordSeparators, _sso)
-                                                     .Where(x => x.Length > 4)
-                                                     .Count());
+            var candidates = ScanForCandidates(FirstCandidate);
+
+            if (candidates.Count() > 0)
+            {
+
+
+                var firstStageAvg = candidates.Average(p => p.Score);
+
+                candidates = candidates
+                                .Where(p => p.Score > firstStageAvg)
+                                .OrderByDescending(p => p
+                                                         .Element
+                                                         .TextContent
+                                                         .RegexTrimNormDecode()
+                                                         .Split(wordSeparators, _sso)
+                                                         .Where(x => x.Length > 4)
+                                                         .Count());
+
+                var secondStageAvg = candidates.Average(p => p.LinkDensity);
+
+                candidates = candidates
+                                .Where(p => p.LinkDensity < secondStageAvg)
+                                .OrderBy(p => p.LinkDensity);
+
+            }
             if (candidates.Count() > 0)
                 TopCandidate = candidates?.FirstOrDefault().Element;
 

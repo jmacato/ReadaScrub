@@ -8,7 +8,6 @@
     <PackageReference Include="AngleSharp" Version="0.9.9.2" />
     <PackageReference Include="MoreLINQ" Version="2.10.0" />
 
-    <ProjectReference Include="../chardetsharp/src/CharDet/CharDet.csproj"/>
-  </ItemGroup>
+   </ItemGroup>
 
 </Project>
